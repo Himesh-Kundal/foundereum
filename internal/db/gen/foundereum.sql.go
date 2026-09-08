@@ -400,6 +400,41 @@ func (q *Queries) GetAPIKeysByProject(ctx context.Context, projectID pgtype.UUID
 	return items, nil
 }
 
+const getAllActiveProjects = `-- name: GetAllActiveProjects :many
+SELECT id, org_id, slug, name, status, hcs_topic_id, quorum_threshold, withdraw_quorum_min_usd, erc8004_agent_id, created_at FROM projects WHERE status = 'active' ORDER BY created_at DESC
+`
+
+func (q *Queries) GetAllActiveProjects(ctx context.Context) ([]Projects, error) {
+	rows, err := q.db.Query(ctx, getAllActiveProjects)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Projects
+	for rows.Next() {
+		var i Projects
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.Slug,
+			&i.Name,
+			&i.Status,
+			&i.HcsTopicID,
+			&i.QuorumThreshold,
+			&i.WithdrawQuorumMinUsd,
+			&i.Erc8004AgentID,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getApproval = `-- name: GetApproval :one
 SELECT id, project_id, type, payload, challenge, threshold, signatures, status, result_tx_id, created_by, created_at, expires_at FROM approvals WHERE id = $1
 `
@@ -1094,6 +1129,52 @@ func (q *Queries) PaymentsMissingAudit(ctx context.Context) ([]Payments, error) 
 			&i.HcsTs,
 			&i.CreatedAt,
 			&i.SettledAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const reconcileWalletBalances = `-- name: ReconcileWalletBalances :many
+SELECT w.id AS wallet_id,
+       w.project_id,
+       w.usdc_balance,
+       COALESCE(SUM(le.amount), 0)::numeric AS ledger_sum,
+       (w.usdc_balance - COALESCE(SUM(le.amount), 0))::numeric AS diff
+FROM wallets w
+LEFT JOIN ledger_entries le ON le.wallet_id = w.id AND le.asset = 'USDC'
+GROUP BY w.id, w.project_id, w.usdc_balance
+HAVING w.usdc_balance != COALESCE(SUM(le.amount), 0)
+`
+
+type ReconcileWalletBalancesRow struct {
+	WalletID    pgtype.UUID    `json:"wallet_id"`
+	ProjectID   pgtype.UUID    `json:"project_id"`
+	UsdcBalance pgtype.Numeric `json:"usdc_balance"`
+	LedgerSum   pgtype.Numeric `json:"ledger_sum"`
+	Diff        pgtype.Numeric `json:"diff"`
+}
+
+func (q *Queries) ReconcileWalletBalances(ctx context.Context) ([]ReconcileWalletBalancesRow, error) {
+	rows, err := q.db.Query(ctx, reconcileWalletBalances)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ReconcileWalletBalancesRow
+	for rows.Next() {
+		var i ReconcileWalletBalancesRow
+		if err := rows.Scan(
+			&i.WalletID,
+			&i.ProjectID,
+			&i.UsdcBalance,
+			&i.LedgerSum,
+			&i.Diff,
 		); err != nil {
 			return nil, err
 		}

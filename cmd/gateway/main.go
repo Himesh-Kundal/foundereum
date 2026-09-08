@@ -13,7 +13,10 @@ import (
 	"time"
 
 	"github.com/foundereum/foundereum/internal/config"
+	gen "github.com/foundereum/foundereum/internal/db/gen"
 	"github.com/foundereum/foundereum/internal/httpx"
+	"github.com/foundereum/foundereum/internal/ledger"
+	"github.com/foundereum/foundereum/internal/policy"
 	"github.com/foundereum/foundereum/internal/privy"
 	"github.com/foundereum/foundereum/internal/tools"
 	_ "github.com/foundereum/foundereum/internal/tools/deploy"
@@ -43,10 +46,14 @@ func main() {
 
 	ctx := context.Background()
 	pgPool, err := pgxpool.New(ctx, cfg.DatabaseURL)
+	var queries *gen.Queries
+	var ledg *ledger.Ledger
 	if err != nil {
 		logger.Warn("postgres not connected, starting gateway in standalone memory/mock mode", "err", err)
 	} else {
 		defer pgPool.Close()
+		queries = gen.New(pgPool)
+		ledg = ledger.New(pgPool)
 	}
 
 	rdb := redis.NewClient(&redis.Options{Addr: strings.TrimPrefix(cfg.RedisURL, "redis://")})
@@ -169,13 +176,20 @@ end
 			return
 		}
 
-		// Extract API key for rate limiting and scoping
+		// Extract API key for rate limiting, scoping, and policy enforcement
 		authHeader := r.Header.Get("Authorization")
 		keyID := "anon:" + r.RemoteAddr
+		var keyCtx *gen.GetKeyContextRow
 		if strings.HasPrefix(authHeader, "Bearer ") {
 			rawKey := strings.TrimPrefix(authHeader, "Bearer ")
 			kh := sha256.Sum256([]byte(rawKey))
 			keyID = hex.EncodeToString(kh[:8])
+			if queries != nil {
+				row, err := queries.GetKeyContext(r.Context(), kh[:])
+				if err == nil {
+					keyCtx = &row
+				}
+			}
 		}
 
 		// Redis token bucket rate limiting (10 rps, burst 30)
@@ -209,18 +223,40 @@ end
 		estUSD := x402.Estimate(spec.Pricing, rawArgs)
 		estBaseUnits := x402.USDToUSDC(estUSD)
 
+		// Scoped project and wallet context
+		projID := uuid.New()
+		wltRef := wallet.Ref{
+			HederaAccountID: cfg.HederaPlatformAccount,
+			EVMAddress:      "0x0000000000000000000000000000000000000000",
+		}
+		if keyCtx != nil {
+			projID = uuid.UUID(keyCtx.ProjectID.Bytes)
+			if keyCtx.HederaAccountID.Valid {
+				wltRef.HederaAccountID = keyCtx.HederaAccountID.String
+			}
+			if keyCtx.EvmAddress != "" {
+				wltRef.EVMAddress = keyCtx.EvmAddress
+			}
+
+			// Pre-check policy if configured
+			if len(keyCtx.Policy) > 0 && ledg != nil {
+				spend24h, _ := ledg.SpendLast24h(r.Context(), projID)
+				if err := policy.PreCheckPayment(keyCtx.Policy, cfg.HederaPlatformAccount, estUSD, spend24h); err != nil {
+					httpx.Err(w, http.StatusForbidden, "POLICY_REJECTED", err.Error())
+					return
+				}
+			}
+		}
+
 		// Check X-PAYMENT header
 		xPaymentHeader := r.Header.Get("X-PAYMENT")
 
 		// Free tools or zero price skip 402 challenge
 		if estUSD.IsZero() {
 			input := tools.Input{
-				ProjectID: uuid.New(),
-				Wallet: wallet.Ref{
-					HederaAccountID: cfg.HederaPlatformAccount,
-					EVMAddress:      "0x0000000000000000000000000000000000000000",
-				},
-				Args: rawArgs,
+				ProjectID: projID,
+				Wallet:    wltRef,
+				Args:      rawArgs,
 			}
 			out, err := spec.Executor.Execute(r.Context(), input)
 			if err != nil {
@@ -303,11 +339,8 @@ end
 		}
 
 		in := tools.Input{
-			ProjectID: uuid.New(),
-			Wallet: wallet.Ref{
-				HederaAccountID: cfg.HederaPlatformAccount,
-				EVMAddress:      "0x0000000000000000000000000000000000000000",
-			},
+			ProjectID:  projID,
+			Wallet:     wltRef,
 			Args:       rawArgs,
 			Settlement: settleRes,
 		}
@@ -324,9 +357,50 @@ end
 			carryUSD = diff.String()
 		}
 
+		callIDStr := uuid.NewString()
+		if ledg != nil && keyCtx != nil {
+			cID, err := ledg.RecordPayment(r.Context(), ledger.PaymentRecord{
+				ProjectID:      projID,
+				APIKeyID:       uuid.UUID(keyCtx.KeyID.Bytes),
+				WalletID:       uuid.UUID(keyCtx.WalletID.Bytes),
+				Tool:           toolName,
+				Args:           rawArgs,
+				IdempotencyKey: idemKey,
+				Nonce:          paymentBlob.Nonce,
+				EstimateUSD:    estUSD,
+				ActualUSD:      actUSD,
+				MeteredBytes:   int32(out.Bytes),
+				TxHash:         settleRes.TxID,
+				LatencyMs:      120,
+				Asset:          "USDC",
+				AmountBase:     estBaseUnits,
+				Facilitator:    cfg.FacilitatorMode,
+			})
+			if err == nil && cID != uuid.Nil {
+				callIDStr = cID.String()
+			}
+		}
+
+		// Broadcast call event to Redis Pub/Sub for live frontend dashboard streaming
+		if rdb != nil {
+			evBytes, _ := json.Marshal(map[string]any{
+				"type":         "call.recorded",
+				"call_id":      callIDStr,
+				"project_id":   projID.String(),
+				"tool":         toolName,
+				"tx_hash":      settleRes.TxID,
+				"estimate_usd": estUSD.String(),
+				"actual_usd":   actUSD.String(),
+				"status":       "succeeded",
+				"ts":           time.Now().UTC(),
+			})
+			_ = rdb.Publish(r.Context(), "events:calls", evBytes).Err()
+			_ = rdb.Publish(r.Context(), "events:project:"+projID.String(), evBytes).Err()
+		}
+
 		respData := map[string]any{
 			"result":  out.Result,
-			"call_id": uuid.NewString(),
+			"call_id": callIDStr,
 			"payment": map[string]any{
 				"hedera_tx_id": settleRes.TxID,
 				"amount":       settleRes.Amount.String(),

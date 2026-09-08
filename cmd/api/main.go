@@ -28,6 +28,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 	"github.com/shopspring/decimal"
 )
 
@@ -92,6 +93,15 @@ func main() {
 		defer pgPool.Close()
 		queries = db.New(pgPool)
 		logger.Info("postgres connected for api control plane")
+	}
+
+	var rdb *redis.Client
+	if redisOpts, err := redis.ParseURL(cfg.RedisURL); err == nil {
+		rdb = redis.NewClient(redisOpts)
+		defer rdb.Close()
+	} else {
+		rdb = redis.NewClient(&redis.Options{Addr: strings.TrimPrefix(cfg.RedisURL, "redis://")})
+		defer rdb.Close()
 	}
 
 	platformAccount := cfg.HederaPlatformAccount
@@ -424,6 +434,16 @@ func main() {
 		})
 
 		pr.Post("/v1/projects/{id}/faucet", func(w http.ResponseWriter, r *http.Request) {
+			id := chi.URLParam(r, "id")
+			if rdb != nil {
+				msg, _ := json.Marshal(map[string]any{
+					"type":       "wallet.balance",
+					"project_id": id,
+					"action":     "faucet",
+					"message":    "Treasury funded with 50 USDC and 10 HBAR",
+				})
+				_ = rdb.Publish(r.Context(), "events:project:"+id, msg).Err()
+			}
 			httpx.JSON(w, http.StatusOK, map[string]any{
 				"txs": []string{
 					fmt.Sprintf("%s@faucet_usdc_50", platformAccount),
@@ -442,6 +462,15 @@ func main() {
 			_ = json.NewDecoder(r.Body).Decode(&req)
 			if req.AmountUSDC == "" {
 				req.AmountUSDC = "10.000000"
+			}
+			if rdb != nil {
+				msg, _ := json.Marshal(map[string]any{
+					"type":        "wallet.balance",
+					"project_id":  id,
+					"action":      "topup",
+					"amount_usdc": req.AmountUSDC,
+				})
+				_ = rdb.Publish(r.Context(), "events:project:"+id, msg).Err()
 			}
 			httpx.JSON(w, http.StatusOK, map[string]any{
 				"status":      "transferred",
@@ -749,9 +778,37 @@ func main() {
 				http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
 				return
 			}
-			fmt.Fprintf(w, "event: project.ready\ndata: {\"project_id\":\"%s\"}\n\n", chi.URLParam(r, "id"))
+			projectID := chi.URLParam(r, "id")
+			fmt.Fprintf(w, "event: project.ready\ndata: {\"project_id\":\"%s\"}\n\n", projectID)
 			flusher.Flush()
-			<-r.Context().Done()
+
+			if rdb != nil {
+				pubsub := rdb.Subscribe(r.Context(), "events:project:"+projectID, "events:calls")
+				defer pubsub.Close()
+				ch := pubsub.Channel()
+				for {
+					select {
+					case <-r.Context().Done():
+						return
+					case msg, ok := <-ch:
+						if !ok {
+							return
+						}
+						var ev struct {
+							Type string `json:"type"`
+						}
+						_ = json.Unmarshal([]byte(msg.Payload), &ev)
+						evType := ev.Type
+						if evType == "" {
+							evType = "message"
+						}
+						fmt.Fprintf(w, "event: %s\ndata: %s\n\n", evType, msg.Payload)
+						flusher.Flush()
+					}
+				}
+			} else {
+				<-r.Context().Done()
+			}
 		})
 	})
 

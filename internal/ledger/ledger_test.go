@@ -2,8 +2,11 @@ package ledger
 
 import (
 	"context"
+	"crypto/sha256"
+	"fmt"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/foundereum/foundereum/internal/db/gen"
 	"github.com/google/uuid"
@@ -66,10 +69,12 @@ func TestLedgerIntegration(t *testing.T) {
 	// Create test wallet
 	walletID := uuid.New()
 	pgWalletID := pgtype.UUID{Bytes: walletID, Valid: true}
+	uniqueAddr := fmt.Sprintf("0x%x", sha256.Sum256([]byte(walletID.String())))[:42]
+	uniqueAcct := fmt.Sprintf("0.0.%d", 900000+time.Now().UnixNano()%100000)
 	_, err = pool.Exec(ctx, `
 		INSERT INTO wallets (id, project_id, kind, custody, evm_address, hedera_account_id, status, usdc_balance, hbar_balance)
-		VALUES ($1, $2, 'agent', 'local', '0x1234567890123456789012345678901234567890', '0.0.999999', 'ready', 0, 0)
-	`, pgWalletID, proj.ID)
+		VALUES ($1, $2, 'agent', 'local', $3, $4, 'ready', 0, 0)
+	`, pgWalletID, proj.ID, uniqueAddr, uniqueAcct)
 	if err != nil {
 		t.Fatalf("failed to insert wallet: %v", err)
 	}
@@ -112,4 +117,51 @@ func TestLedgerIntegration(t *testing.T) {
 	if err != ErrInsufficientBalance {
 		t.Fatalf("expected ErrInsufficientBalance, got %v", err)
 	}
+
+	// 4. Test RecordPayment atomic transaction
+	apiKey, err := queries.CreateAPIKey(ctx, db.CreateAPIKeyParams{
+		ProjectID: proj.ID,
+		WalletID:  pgWalletID,
+		Name:      "test-key",
+		Prefix:    "fnd_sk_test",
+		KeyHash:   []byte("test-hash-" + walletID.String()[:8]),
+		Status:    "active",
+	})
+	if err != nil {
+		t.Fatalf("failed to create api key: %v", err)
+	}
+
+	callID, err := ledg.RecordPayment(ctx, PaymentRecord{
+		ProjectID:      uuid.UUID(proj.ID.Bytes),
+		APIKeyID:       uuid.UUID(apiKey.ID.Bytes),
+		WalletID:       walletID,
+		Tool:           "get_swap_quote",
+		Args:           []byte(`{"tokenIn":"USDC"}`),
+		IdempotencyKey: "idem-" + uuid.New().String(),
+		Nonce:          "nonce-" + uuid.New().String(),
+		EstimateUSD:    decimal.NewFromFloat(0.0001),
+		ActualUSD:      decimal.NewFromFloat(0.0001),
+		MeteredBytes:   128,
+		TxHash:         "0.0.12345@12345.6789",
+		LatencyMs:      45,
+		Asset:          "USDC",
+		AmountBase:     decimal.NewFromInt(100), // 0.0001 USDC
+		Facilitator:    "self",
+	})
+	if err != nil {
+		t.Fatalf("RecordPayment failed: %v", err)
+	}
+	if callID == uuid.Nil {
+		t.Fatalf("expected valid callID, got nil")
+	}
+
+	// 5. Verify SpendLast24h
+	spend, err := ledg.SpendLast24h(ctx, uuid.UUID(proj.ID.Bytes))
+	if err != nil {
+		t.Fatalf("SpendLast24h failed: %v", err)
+	}
+	if spend.LessThanOrEqual(decimal.Zero) {
+		t.Fatalf("expected spend > 0, got %s", spend.String())
+	}
 }
+

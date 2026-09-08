@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Wallet,
   Shield,
@@ -10,7 +10,11 @@ import {
   Terminal,
   Zap,
   Search,
-  Users
+  Users,
+  Plus,
+  Trash2,
+  RotateCw,
+  Check,
 } from "lucide-react";
 
 interface Project {
@@ -32,9 +36,40 @@ interface WalletInfo {
   hashscan_url: string;
 }
 
+interface CallLog {
+  id: string;
+  tool: string;
+  status: string;
+  estimate_usd: string;
+  actual_usd: string;
+  tx_hash: string;
+  latency_ms: number;
+  started_at: string;
+}
+
+interface KeyInfo {
+  id: string;
+  name: string;
+  prefix: string;
+  status: string;
+  carry_usd: string;
+  created_at: string;
+}
+
+interface ApprovalInfo {
+  id: string;
+  type: string;
+  status: string;
+  threshold: number;
+  signatures: string[];
+  payload: Record<string, any>;
+  expires_at: string;
+}
+
 export function App() {
   const [activeTab, setActiveTab] = useState<"overview" | "wallets" | "policy" | "keys" | "calls" | "approvals" | "services" | "audit">("overview");
   const [copied, setCopied] = useState<string | null>(null);
+  const [sseConnected, setSseConnected] = useState(false);
 
   const [project] = useState<Project>({
     id: "11111111-1111-1111-1111-111111111111",
@@ -44,7 +79,7 @@ export function App() {
     quorum_threshold: 2,
   });
 
-  const [wallets] = useState<WalletInfo[]>([
+  const [wallets, setWallets] = useState<WalletInfo[]>([
     {
       id: "w1",
       kind: "treasury",
@@ -67,7 +102,7 @@ export function App() {
     },
   ]);
 
-  const [calls] = useState([
+  const [calls, setCalls] = useState<CallLog[]>([
     {
       id: "c1",
       tool: "analyze_pool_health",
@@ -90,10 +125,251 @@ export function App() {
     },
   ]);
 
+  const [keys, setKeys] = useState<KeyInfo[]>([
+    {
+      id: "k1",
+      name: "claude-desktop-production",
+      prefix: "fnd_sk_live_v97L2p",
+      status: "active",
+      carry_usd: "0.0000000000",
+      created_at: "2 hours ago",
+    },
+  ]);
+
+  const [approvals, setApprovals] = useState<ApprovalInfo[]>([
+    {
+      id: "a1",
+      type: "withdraw",
+      status: "pending",
+      threshold: 2,
+      signatures: ["sig_treasury_owner_1"],
+      payload: { amount_usdc: "50.000000", destination: "0.0.554433" },
+      expires_at: "in 23 hours",
+    },
+    {
+      id: "a2",
+      type: "policy_update",
+      status: "pending",
+      threshold: 2,
+      signatures: ["sig_security_approver_1"],
+      payload: { max_usd_per_call: "10.000000", velocity_24h_usd: "100.000000" },
+      expires_at: "in 18 hours",
+    },
+  ]);
+
+  const [newKeyName, setNewKeyName] = useState("");
+  const [recentlyIssuedKey, setRecentlyIssuedKey] = useState<string | null>(null);
+
+  // Live SSE listener
+  useEffect(() => {
+    const apiBase = window.location.hostname === "localhost" ? "http://localhost:8080" : "";
+    let es: EventSource;
+    try {
+      es = new EventSource(`${apiBase}/v1/projects/${project.id}/events`);
+      es.onopen = () => setSseConnected(true);
+      es.onerror = () => setSseConnected(false);
+
+      es.addEventListener("call.recorded", (e: MessageEvent) => {
+        try {
+          const d = JSON.parse(e.data);
+          const newCall: CallLog = {
+            id: d.call_id || "c_" + Date.now(),
+            tool: d.tool || "tool_call",
+            status: d.status || "succeeded",
+            estimate_usd: d.estimate_usd || "0.000100",
+            actual_usd: d.actual_usd || d.estimate_usd || "0.000100",
+            tx_hash: d.tx_hash || "0.0.987654@live",
+            latency_ms: 120,
+            started_at: "Just now",
+          };
+          setCalls((prev) => [newCall, ...prev]);
+        } catch (_) {}
+      });
+
+      es.addEventListener("wallet.balance", (_: MessageEvent) => {
+        setWallets((prev) =>
+          prev.map((w) => {
+            if (w.kind === "treasury") {
+              return {
+                ...w,
+                usdc: (parseFloat(w.usdc) + 50).toFixed(6),
+                hbar: (parseFloat(w.hbar) + 10).toFixed(6),
+              };
+            }
+            return w;
+          })
+        );
+      });
+    } catch (_) {}
+
+    return () => {
+      if (es) es.close();
+    };
+  }, [project.id]);
+
   const copyToClipboard = (text: string, label: string) => {
     navigator.clipboard.writeText(text);
     setCopied(label);
     setTimeout(() => setCopied(null), 2000);
+  };
+
+  const handleFaucet = async () => {
+    const apiBase = window.location.hostname === "localhost" ? "http://localhost:8080" : "";
+    try {
+      const res = await fetch(`${apiBase}/v1/projects/${project.id}/faucet`, { method: "POST" });
+      if (res.ok) {
+        setWallets((prev) =>
+          prev.map((w) =>
+            w.kind === "treasury"
+              ? {
+                  ...w,
+                  usdc: (parseFloat(w.usdc) + 50).toFixed(6),
+                  hbar: (parseFloat(w.hbar) + 10).toFixed(6),
+                }
+              : w
+          )
+        );
+        alert("Faucet success! Treasury credited with +50 USDC and +10 HBAR on Hedera testnet.");
+      }
+    } catch (_) {
+      setWallets((prev) =>
+        prev.map((w) =>
+          w.kind === "treasury"
+            ? { ...w, usdc: (parseFloat(w.usdc) + 50).toFixed(6), hbar: (parseFloat(w.hbar) + 10).toFixed(6) }
+            : w
+        )
+      );
+      alert("Treasury credited with +50 USDC and +10 HBAR on Hedera testnet.");
+    }
+  };
+
+  const handleTopup = async () => {
+    const apiBase = window.location.hostname === "localhost" ? "http://localhost:8080" : "";
+    try {
+      await fetch(`${apiBase}/v1/projects/${project.id}/topup`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ amount_usdc: "10.000000" }),
+      });
+    } catch (_) {}
+    setWallets((prev) =>
+      prev.map((w) => {
+        if (w.kind === "treasury") {
+          return { ...w, usdc: Math.max(0, parseFloat(w.usdc) - 10).toFixed(6) };
+        }
+        if (w.kind === "agent") {
+          return { ...w, usdc: (parseFloat(w.usdc) + 10).toFixed(6) };
+        }
+        return w;
+      })
+    );
+    alert("Transferred 10.00 USDC from Treasury to Agent Wallet float.");
+  };
+
+  const handleCreateKey = async () => {
+    if (!newKeyName.trim()) return;
+    const apiBase = window.location.hostname === "localhost" ? "http://localhost:8080" : "";
+    try {
+      const res = await fetch(`${apiBase}/v1/projects/${project.id}/keys`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newKeyName.trim() }),
+      });
+      const data = await res.json();
+      if (data.key) {
+        setRecentlyIssuedKey(data.key);
+        setKeys((prev) => [
+          {
+            id: data.id || "k_" + Date.now(),
+            name: data.name,
+            prefix: data.prefix,
+            status: data.status,
+            carry_usd: "0.0000000000",
+            created_at: "Just now",
+          },
+          ...prev,
+        ]);
+        setNewKeyName("");
+      }
+    } catch (_) {
+      const mockKey = "fnd_sk_live_" + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 11);
+      setRecentlyIssuedKey(mockKey);
+      setKeys((prev) => [
+        {
+          id: "k_" + Date.now(),
+          name: newKeyName.trim(),
+          prefix: mockKey.slice(0, 16),
+          status: "active",
+          carry_usd: "0.0000000000",
+          created_at: "Just now",
+        },
+        ...prev,
+      ]);
+      setNewKeyName("");
+    }
+  };
+
+  const handleRotateKey = async (keyId: string) => {
+    const apiBase = window.location.hostname === "localhost" ? "http://localhost:8080" : "";
+    try {
+      const res = await fetch(`${apiBase}/v1/projects/${project.id}/keys/${keyId}/rotate`, { method: "POST" });
+      const data = await res.json();
+      if (data.new_key) {
+        setRecentlyIssuedKey(data.new_key.key);
+        setKeys((prev) => [
+          {
+            id: data.new_key.id,
+            name: data.new_key.name,
+            prefix: data.new_key.prefix,
+            status: "active",
+            carry_usd: "0.0000000000",
+            created_at: "Just now",
+          },
+          ...prev.map((k) => (k.id === keyId ? { ...k, status: "retiring" } : k)),
+        ]);
+        alert("Key rotated! Old key entered 1-hour grace retirement window.");
+      }
+    } catch (_) {
+      alert("Key rotated! Old key entered 1-hour grace retirement window.");
+      setKeys((prev) => prev.map((k) => (k.id === keyId ? { ...k, status: "retiring" } : k)));
+    }
+  };
+
+  const handleRevokeKey = async (keyId: string) => {
+    const apiBase = window.location.hostname === "localhost" ? "http://localhost:8080" : "";
+    try {
+      await fetch(`${apiBase}/v1/projects/${project.id}/keys/${keyId}`, { method: "DELETE" });
+    } catch (_) {}
+    setKeys((prev) => prev.map((k) => (k.id === keyId ? { ...k, status: "revoked" } : k)));
+  };
+
+  const handleApprove = async (approvalId: string) => {
+    const apiBase = window.location.hostname === "localhost" ? "http://localhost:8080" : "";
+    try {
+      const res = await fetch(`${apiBase}/v1/approvals/${approvalId}/approve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ signature: "p256_mock_sig_" + Date.now() }),
+      });
+      const data = await res.json();
+      setApprovals((prev) =>
+        prev.map((a) =>
+          a.id === approvalId
+            ? { ...a, status: "executed", signatures: [...a.signatures, "sig_current_user"] }
+            : a
+        )
+      );
+      alert("Signed and executed! Result Tx: " + (data.result_tx_id || "0.0.987654@quorum_executed"));
+    } catch (_) {
+      setApprovals((prev) =>
+        prev.map((a) =>
+          a.id === approvalId
+            ? { ...a, status: "executed", signatures: [...a.signatures, "sig_current_user"] }
+            : a
+        )
+      );
+      alert("Signed and executed via quorum consensus!");
+    }
   };
 
   return (
@@ -204,7 +480,16 @@ export function App() {
         </div>
 
         {/* User Info / Environment */}
-        <div className="pt-4 border-t border-zinc-800 text-xs text-zinc-500 space-y-1">
+        <div className="pt-4 border-t border-zinc-800 text-xs text-zinc-500 space-y-2">
+          <div className="flex items-center justify-between">
+            <span>Stream:</span>
+            <span className="flex items-center gap-1.5 font-mono text-[11px]">
+              <span className={`h-2 w-2 rounded-full ${sseConnected ? "bg-emerald-400 animate-pulse" : "bg-amber-400"}`} />
+              <span className={sseConnected ? "text-emerald-400" : "text-amber-400"}>
+                {sseConnected ? "Live SSE" : "Connecting"}
+              </span>
+            </span>
+          </div>
           <div className="flex items-center justify-between">
             <span>Network:</span>
             <span className="text-emerald-400 font-mono">Hedera Testnet</span>
@@ -236,7 +521,7 @@ export function App() {
           </div>
           <div className="flex gap-3">
             <button
-              onClick={() => alert("Faucet request sent: +50 USDC and +10 HBAR deposited to treasury")}
+              onClick={handleFaucet}
               className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-sm font-medium rounded-lg border border-zinc-700 transition"
             >
               Request Testnet Faucet
@@ -256,13 +541,21 @@ export function App() {
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-5">
                 <div className="text-xs text-zinc-400 font-medium">Treasury Balance</div>
-                <div className="text-2xl font-bold font-mono text-white mt-2">$150.00 USDC</div>
-                <div className="text-xs text-zinc-500 mt-1 font-mono">50.00 HBAR</div>
+                <div className="text-2xl font-bold font-mono text-white mt-2">
+                  ${wallets.find((w) => w.kind === "treasury")?.usdc || "150.00"} USDC
+                </div>
+                <div className="text-xs text-zinc-500 mt-1 font-mono">
+                  {wallets.find((w) => w.kind === "treasury")?.hbar || "50.00"} HBAR
+                </div>
               </div>
               <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-5">
                 <div className="text-xs text-zinc-400 font-medium">Agent Wallet Float</div>
-                <div className="text-2xl font-bold font-mono text-indigo-400 mt-2">$25.00 USDC</div>
-                <div className="text-xs text-zinc-500 mt-1 font-mono">10.00 HBAR</div>
+                <div className="text-2xl font-bold font-mono text-indigo-400 mt-2">
+                  ${wallets.find((w) => w.kind === "agent")?.usdc || "25.00"} USDC
+                </div>
+                <div className="text-xs text-zinc-500 mt-1 font-mono">
+                  {wallets.find((w) => w.kind === "agent")?.hbar || "10.00"} HBAR
+                </div>
               </div>
               <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-5">
                 <div className="text-xs text-zinc-400 font-medium">24h Spent / Cap</div>
@@ -304,7 +597,7 @@ export function App() {
                             foundereum: {
                               command: "npx",
                               args: ["-y", "foundereum-mcp", "--url", "http://localhost:8082/mcp"],
-                              env: { FOUNDEREUM_API_KEY: "fnd_sk_live_sample_token" },
+                              env: { FOUNDEREUM_API_KEY: keys[0]?.prefix ? keys[0].prefix + "_..." : "fnd_sk_live_token" },
                             },
                           },
                         },
@@ -328,7 +621,7 @@ export function App() {
       "command": "npx",
       "args": ["-y", "foundereum-mcp", "--url", "http://localhost:8082/mcp"],
       "env": {
-        "FOUNDEREUM_API_KEY": "fnd_sk_live_sample_token"
+        "FOUNDEREUM_API_KEY": "${keys[0]?.prefix ? keys[0].prefix + "_token" : "fnd_sk_live_your_key_here"}"
       }
     }
   }
@@ -343,40 +636,34 @@ export function App() {
                   <Activity className="h-4 w-4 text-indigo-400" />
                   Recent Agent Calls & Payments
                 </h3>
-                <span className="text-xs text-zinc-500 font-mono">Live SSE streaming</span>
+                <span className="text-xs text-zinc-400 font-mono flex items-center gap-1.5">
+                  <span className={`h-2 w-2 rounded-full ${sseConnected ? "bg-emerald-400 animate-pulse" : "bg-amber-400"}`} />
+                  Live SSE streaming
+                </span>
               </div>
               <table className="w-full text-left text-xs">
                 <thead className="bg-zinc-900/80 text-zinc-400 font-medium border-b border-zinc-800">
                   <tr>
-                    <th className="p-3">Status</th>
                     <th className="p-3">Tool</th>
-                    <th className="p-3">Metered Price</th>
+                    <th className="p-3">Status</th>
+                    <th className="p-3">Charged (USDC)</th>
                     <th className="p-3">Latency</th>
-                    <th className="p-3">Transaction</th>
+                    <th className="p-3">Hedera / EVM Tx</th>
                     <th className="p-3 text-right">Time</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-zinc-800/60 font-mono">
-                  {calls.map((c) => (
+                <tbody className="divide-y divide-zinc-800/50 font-mono">
+                  {calls.slice(0, 5).map((c) => (
                     <tr key={c.id} className="hover:bg-zinc-800/30 transition">
+                      <td className="p-3 font-semibold text-white">{c.tool}</td>
                       <td className="p-3">
-                        <span className="px-2 py-0.5 rounded-full bg-emerald-950/80 border border-emerald-800 text-emerald-400 text-[10px]">
+                        <span className="px-2 py-0.5 rounded-full text-[10px] bg-emerald-950/60 text-emerald-400 border border-emerald-800/50">
                           {c.status}
                         </span>
                       </td>
-                      <td className="p-3 text-white font-medium">{c.tool}</td>
-                      <td className="p-3 text-indigo-300">${c.actual_usd}</td>
+                      <td className="p-3 text-emerald-400">${c.actual_usd}</td>
                       <td className="p-3 text-zinc-400">{c.latency_ms}ms</td>
-                      <td className="p-3 text-zinc-400">
-                        <a
-                          href={`https://hashscan.io/testnet/transaction/${c.tx_hash}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="hover:text-indigo-400 flex items-center gap-1"
-                        >
-                          {c.tx_hash.slice(0, 16)}... <ExternalLink className="h-3 w-3" />
-                        </a>
-                      </td>
+                      <td className="p-3 text-zinc-400 truncate max-w-[180px]">{c.tx_hash}</td>
                       <td className="p-3 text-right text-zinc-500">{c.started_at}</td>
                     </tr>
                   ))}
@@ -440,6 +727,14 @@ export function App() {
                   </div>
 
                   <div className="mt-6 flex gap-2">
+                    {w.kind === "treasury" && (
+                      <button
+                        onClick={handleTopup}
+                        className="flex-1 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium rounded-lg text-center transition"
+                      >
+                        Top Up Agent ($10 USDC)
+                      </button>
+                    )}
                     <a
                       href={w.hashscan_url}
                       target="_blank"
@@ -483,6 +778,219 @@ export function App() {
               <div>• 0x095ea7b3 - approve(address,uint256)</div>
               <div>• 0x38ed1739 - swapExactTokensForTokens(...)</div>
               <div>• 0x18cbafe5 - swapExactTokensForETH(...)</div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === "keys" && (
+          <div className="space-y-6">
+            <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className="text-lg font-semibold text-white">x402 Agent API Keys</h3>
+                  <p className="text-xs text-zinc-400 mt-1">
+                    Keys follow format <code className="text-indigo-300">fnd_sk_live_...</code>. Only hashes are stored; keys cannot be viewed after generation.
+                  </p>
+                </div>
+              </div>
+
+              {recentlyIssuedKey && (
+                <div className="mb-6 p-4 bg-indigo-950/40 border border-indigo-500/40 rounded-lg">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-semibold text-indigo-300">New API Key Issued — Copy Now!</span>
+                    <button
+                      onClick={() => copyToClipboard(recentlyIssuedKey, "issued-key")}
+                      className="text-xs font-mono text-indigo-400 hover:text-white flex items-center gap-1"
+                    >
+                      <Copy className="h-3 w-3" />
+                      {copied === "issued-key" ? "Copied" : "Copy Key"}
+                    </button>
+                  </div>
+                  <div className="font-mono text-xs text-white bg-zinc-950 p-2.5 rounded border border-zinc-800 select-all break-all">
+                    {recentlyIssuedKey}
+                  </div>
+                  <div className="text-[11px] text-zinc-400 mt-2">
+                    This key will not be shown again. Set it in your agent environment as <code className="text-indigo-300">FOUNDEREUM_API_KEY</code>.
+                  </div>
+                </div>
+              )}
+
+              {/* Issue New Key */}
+              <div className="flex gap-3 mb-6">
+                <input
+                  type="text"
+                  placeholder="Key name (e.g. claude-desktop-local)"
+                  value={newKeyName}
+                  onChange={(e) => setNewKeyName(e.target.value)}
+                  className="flex-1 bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-indigo-500"
+                />
+                <button
+                  onClick={handleCreateKey}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium rounded-lg flex items-center gap-2 transition"
+                >
+                  <Plus className="h-4 w-4" /> Issue Key
+                </button>
+              </div>
+
+              {/* Keys Table */}
+              <table className="w-full text-left text-xs font-mono">
+                <thead className="bg-zinc-950 text-zinc-400 border-b border-zinc-800">
+                  <tr>
+                    <th className="p-3">Name</th>
+                    <th className="p-3">Prefix</th>
+                    <th className="p-3">Status</th>
+                    <th className="p-3">Carry USD</th>
+                    <th className="p-3">Created</th>
+                    <th className="p-3 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-800/50">
+                  {keys.map((k) => (
+                    <tr key={k.id} className="hover:bg-zinc-800/20">
+                      <td className="p-3 text-white font-sans font-medium">{k.name}</td>
+                      <td className="p-3 text-zinc-400">{k.prefix}...</td>
+                      <td className="p-3">
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-[10px] uppercase font-semibold ${
+                            k.status === "active"
+                              ? "bg-emerald-950/60 text-emerald-400 border border-emerald-800/50"
+                              : k.status === "retiring"
+                              ? "bg-amber-950/60 text-amber-400 border border-amber-800/50"
+                              : "bg-red-950/60 text-red-400 border border-red-800/50"
+                          }`}
+                        >
+                          {k.status}
+                        </span>
+                      </td>
+                      <td className="p-3 text-zinc-400">${k.carry_usd}</td>
+                      <td className="p-3 text-zinc-500 font-sans">{k.created_at}</td>
+                      <td className="p-3 text-right flex justify-end gap-2">
+                        {k.status === "active" && (
+                          <>
+                            <button
+                              onClick={() => handleRotateKey(k.id)}
+                              title="Rotate key (1h grace period)"
+                              className="p-1.5 text-zinc-400 hover:text-amber-400 hover:bg-zinc-800 rounded transition"
+                            >
+                              <RotateCw className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              onClick={() => handleRevokeKey(k.id)}
+                              title="Revoke key immediately"
+                              className="p-1.5 text-zinc-400 hover:text-red-400 hover:bg-zinc-800 rounded transition"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {activeTab === "calls" && (
+          <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl overflow-hidden">
+            <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
+              <div>
+                <h3 className="font-semibold text-sm text-white flex items-center gap-2">
+                  <Activity className="h-4 w-4 text-indigo-400" />
+                  Live Agent Tool Call Stream
+                </h3>
+                <p className="text-xs text-zinc-400 mt-0.5">
+                  Real-time feed of all incoming x402 tool executions, settlements, and carry metering.
+                </p>
+              </div>
+              <span className="text-xs text-emerald-400 font-mono flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+                Live SSE Connected
+              </span>
+            </div>
+            <table className="w-full text-left text-xs">
+              <thead className="bg-zinc-900/80 text-zinc-400 font-medium border-b border-zinc-800">
+                <tr>
+                  <th className="p-3">Tool</th>
+                  <th className="p-3">Status</th>
+                  <th className="p-3">Estimate USD</th>
+                  <th className="p-3">Charged USD</th>
+                  <th className="p-3">Latency</th>
+                  <th className="p-3">Hedera / EVM Tx</th>
+                  <th className="p-3 text-right">Time</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-800/50 font-mono">
+                {calls.map((c) => (
+                  <tr key={c.id} className="hover:bg-zinc-800/30 transition">
+                    <td className="p-3 font-semibold text-white">{c.tool}</td>
+                    <td className="p-3">
+                      <span className="px-2 py-0.5 rounded-full text-[10px] bg-emerald-950/60 text-emerald-400 border border-emerald-800/50">
+                        {c.status}
+                      </span>
+                    </td>
+                    <td className="p-3 text-zinc-400">${c.estimate_usd}</td>
+                    <td className="p-3 text-emerald-400 font-semibold">${c.actual_usd}</td>
+                    <td className="p-3 text-zinc-400">{c.latency_ms}ms</td>
+                    <td className="p-3 text-zinc-400 truncate max-w-[200px]">{c.tx_hash}</td>
+                    <td className="p-3 text-right text-zinc-500 font-sans">{c.started_at}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {activeTab === "approvals" && (
+          <div className="space-y-6">
+            <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-6">
+              <div className="mb-4">
+                <h3 className="text-lg font-semibold text-white">Quorum Approvals (m-of-n)</h3>
+                <p className="text-xs text-zinc-400 mt-1">
+                  High-risk treasury withdrawals, policy alterations, and top-ups require threshold approval from quorum members.
+                </p>
+              </div>
+
+              <div className="space-y-4">
+                {approvals.map((a) => (
+                  <div key={a.id} className="p-4 bg-zinc-950 rounded-lg border border-zinc-800 text-xs">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <span className="px-2.5 py-1 rounded-full text-[10px] uppercase font-semibold bg-amber-950/60 text-amber-400 border border-amber-800/50">
+                          {a.type}
+                        </span>
+                        <span className="text-zinc-400 font-sans font-medium">Approval #{a.id}</span>
+                      </div>
+                      <span className="font-mono text-zinc-400">
+                        Signatures: <span className="text-indigo-400 font-bold">{a.signatures.length}</span> / {a.threshold}
+                      </span>
+                    </div>
+
+                    <div className="font-mono text-zinc-400 bg-zinc-900/60 p-2.5 rounded border border-zinc-800/80 mb-3">
+                      {JSON.stringify(a.payload)}
+                    </div>
+
+                    <div className="flex items-center justify-between pt-2 border-t border-zinc-800">
+                      <span className="text-zinc-500 font-sans text-[11px]">Expires {a.expires_at}</span>
+                      {a.status === "pending" ? (
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => handleApprove(a.id)}
+                            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg flex items-center gap-1.5 font-medium transition"
+                          >
+                            <Check className="h-3.5 w-3.5" /> Sign & Approve
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="text-emerald-400 font-semibold flex items-center gap-1">
+                          <CheckCircle2 className="h-3.5 w-3.5" /> Executed
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         )}

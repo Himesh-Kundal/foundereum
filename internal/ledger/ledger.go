@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/shopspring/decimal"
+	"time"
 )
 
 var (
@@ -159,13 +160,14 @@ func (l *Ledger) DebitForPayment(ctx context.Context, walletID uuid.UUID, asset 
 		return fmt.Errorf("update wallet balance: %w", err)
 	}
 
-	// Debit entries have negative amount
+	// Debit entries have negative amount and negative amount_usd
 	negAmount := baseUnits.Neg()
+	negAmountUSD := amountUSD.Abs().Neg()
 	_, err = qtx.InsertLedgerEntry(ctx, db.InsertLedgerEntryParams{
 		WalletID:  pgWalletID,
 		Asset:     asset,
 		Amount:    ToPgNumeric(negAmount),
-		AmountUsd: ToPgNumeric(amountUSD),
+		AmountUsd: ToPgNumeric(negAmountUSD),
 		Kind:      "payment",
 		RefType:   pgtype.Text{String: "payments", Valid: true},
 		RefID:     pgtype.Text{String: paymentID, Valid: true},
@@ -176,3 +178,144 @@ func (l *Ledger) DebitForPayment(ctx context.Context, walletID uuid.UUID, asset 
 
 	return tx.Commit(ctx)
 }
+
+type PaymentRecord struct {
+	ProjectID      uuid.UUID
+	APIKeyID       uuid.UUID
+	WalletID       uuid.UUID
+	Tool           string
+	Args           []byte
+	IdempotencyKey string
+	Nonce          string
+	EstimateUSD    decimal.Decimal
+	ActualUSD      decimal.Decimal
+	MeteredBytes   int32
+	TxHash         string
+	LatencyMs      int32
+	Asset          string
+	AmountBase     decimal.Decimal
+	Facilitator    string
+}
+
+// RecordPayment atomically creates a call record, payment record, debits wallet balance, and writes a ledger entry in a single Postgres transaction.
+func (l *Ledger) RecordPayment(ctx context.Context, rec PaymentRecord) (uuid.UUID, error) {
+	tx, err := l.pool.Begin(ctx)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	qtx := l.queries.WithTx(tx)
+
+	pgProjID := pgtype.UUID{Bytes: rec.ProjectID, Valid: true}
+	pgKeyID := pgtype.UUID{Bytes: rec.APIKeyID, Valid: true}
+	pgWalletID := pgtype.UUID{Bytes: rec.WalletID, Valid: true}
+
+	// 1. Create Call
+	call, err := qtx.CreateCall(ctx, db.CreateCallParams{
+		ProjectID:      pgProjID,
+		ApiKeyID:       pgKeyID,
+		IdempotencyKey: rec.IdempotencyKey,
+		Tool:           rec.Tool,
+		Args:           rec.Args,
+		Status:         "succeeded",
+		EstimateUsd:    ToPgNumeric(rec.EstimateUSD),
+	})
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("create call: %w", err)
+	}
+
+	// Update call execution stats
+	callID := uuid.UUID(call.ID.Bytes)
+	_, err = qtx.UpdateCallStatus(ctx, db.UpdateCallStatusParams{
+		ID:           call.ID,
+		Status:       "succeeded",
+		Result:       []byte(`{}`),
+		ActualUsd:    ToPgNumeric(rec.ActualUSD),
+		MeteredBytes: pgtype.Int4{Int32: rec.MeteredBytes, Valid: true},
+		TxHash:       pgtype.Text{String: rec.TxHash, Valid: true},
+		LatencyMs:    pgtype.Int4{Int32: rec.LatencyMs, Valid: true},
+	})
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("update call status: %w", err)
+	}
+
+	// 2. Create Payment
+	facilitator := rec.Facilitator
+	if facilitator != "self" && facilitator != "blocky402" {
+		facilitator = "self"
+	}
+	payment, err := qtx.CreatePayment(ctx, db.CreatePaymentParams{
+		CallID:      call.ID,
+		ProjectID:   pgProjID,
+		WalletID:    pgWalletID,
+		Nonce:       rec.Nonce,
+		Asset:       rec.Asset,
+		Amount:      ToPgNumeric(rec.AmountBase),
+		AmountUsd:   ToPgNumeric(rec.ActualUSD),
+		Facilitator: facilitator,
+		Status:      "settled",
+		HederaTxID:  pgtype.Text{String: rec.TxHash, Valid: true},
+		SettledAt:   pgtype.Timestamptz{Time: time.Now(), Valid: true},
+	})
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("create payment: %w", err)
+	}
+
+	// 3. Lock Wallet and Debit Balance
+	wallet, err := qtx.LockWalletForUpdate(ctx, pgWalletID)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("lock wallet: %w", err)
+	}
+
+	curUSDC := FromPgNumeric(wallet.UsdcBalance)
+	curHBAR := FromPgNumeric(wallet.HbarBalance)
+
+	switch rec.Asset {
+	case "USDC":
+		if curUSDC.LessThan(rec.AmountBase) {
+			return uuid.Nil, ErrInsufficientBalance
+		}
+		curUSDC = curUSDC.Sub(rec.AmountBase)
+	case "HBAR":
+		if curHBAR.LessThan(rec.AmountBase) {
+			return uuid.Nil, ErrInsufficientBalance
+		}
+		curHBAR = curHBAR.Sub(rec.AmountBase)
+	default:
+		return uuid.Nil, fmt.Errorf("unsupported asset: %s", rec.Asset)
+	}
+
+	_, err = qtx.UpdateWalletBalances(ctx, db.UpdateWalletBalancesParams{
+		ID:          pgWalletID,
+		UsdcBalance: ToPgNumeric(curUSDC),
+		HbarBalance: ToPgNumeric(curHBAR),
+	})
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("update wallet balance: %w", err)
+	}
+
+	// 4. Insert Ledger Entry
+	negAmount := rec.AmountBase.Neg()
+	negAmountUSD := rec.ActualUSD.Abs().Neg()
+	pmtIDStr := fmt.Sprintf("%x", payment.ID.Bytes)
+	_, err = qtx.InsertLedgerEntry(ctx, db.InsertLedgerEntryParams{
+		WalletID:  pgWalletID,
+		Asset:     rec.Asset,
+		Amount:    ToPgNumeric(negAmount),
+		AmountUsd: ToPgNumeric(negAmountUSD),
+		Kind:      "payment",
+		RefType:   pgtype.Text{String: "payments", Valid: true},
+		RefID:     pgtype.Text{String: pmtIDStr, Valid: true},
+	})
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("insert ledger entry: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return uuid.Nil, fmt.Errorf("commit tx: %w", err)
+	}
+
+	return callID, nil
+}
+

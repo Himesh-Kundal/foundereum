@@ -237,3 +237,18 @@ SET signatures = $2,
     result_tx_id = COALESCE($4, result_tx_id)
 WHERE id = $1
 RETURNING *;
+
+-- name: ReconcileWalletBalances :many
+SELECT w.id AS wallet_id,
+       w.project_id,
+       w.usdc_balance,
+       COALESCE(SUM(le.amount), 0)::numeric AS ledger_sum,
+       (w.usdc_balance - COALESCE(SUM(le.amount), 0))::numeric AS diff
+FROM wallets w
+LEFT JOIN ledger_entries le ON le.wallet_id = w.id AND le.asset = 'USDC'
+GROUP BY w.id, w.project_id, w.usdc_balance
+HAVING w.usdc_balance != COALESCE(SUM(le.amount), 0);
+
+-- name: GetAllActiveProjects :many
+SELECT * FROM projects WHERE status = 'active' ORDER BY created_at DESC;
+
