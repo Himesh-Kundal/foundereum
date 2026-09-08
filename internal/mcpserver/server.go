@@ -92,8 +92,91 @@ func (s *Server) HandleStreamableHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.Method == "POST" {
+		bodyBytes, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, `{"error":"failed to read body"}`, http.StatusBadRequest)
+			return
+		}
+
+		// Try parsing as JSON-RPC 2.0
+		var rpcReq struct {
+			JSONRPC string          `json:"jsonrpc"`
+			ID      any             `json:"id"`
+			Method  string          `json:"method"`
+			Params  json.RawMessage `json:"params"`
+		}
+
+		if err := json.Unmarshal(bodyBytes, &rpcReq); err == nil && rpcReq.Method != "" {
+			w.Header().Set("Content-Type", "application/json")
+			switch rpcReq.Method {
+			case "initialize":
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"jsonrpc": "2.0",
+					"id":      rpcReq.ID,
+					"result": map[string]any{
+						"protocolVersion": "2024-11-05",
+						"capabilities": map[string]any{
+							"tools": map[string]any{"listChanged": false},
+						},
+						"serverInfo": map[string]any{
+							"name":    "foundereum-mcp",
+							"version": "1.0.0",
+						},
+					},
+				})
+				return
+
+			case "tools/list":
+				specs := tools.List()
+				var toolDefs []map[string]any
+				for _, sp := range specs {
+					var schema any
+					_ = json.Unmarshal(sp.InputSchema, &schema)
+					toolDefs = append(toolDefs, map[string]any{
+						"name":        sp.Name,
+						"description": sp.Description,
+						"inputSchema": schema,
+					})
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"jsonrpc": "2.0",
+					"id":      rpcReq.ID,
+					"result": map[string]any{
+						"tools": toolDefs,
+					},
+				})
+				return
+
+			case "tools/call":
+				var callParams struct {
+					Name      string          `json:"name"`
+					Arguments json.RawMessage `json:"arguments"`
+				}
+				_ = json.Unmarshal(rpcReq.Params, &callParams)
+				res := s.executeToolLoop(r.Context(), callParams.Name, callParams.Arguments, apiKeyHeader)
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"jsonrpc": "2.0",
+					"id":      rpcReq.ID,
+					"result":  res,
+				})
+				return
+
+			default:
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"jsonrpc": "2.0",
+					"id":      rpcReq.ID,
+					"error": map[string]any{
+						"code":    -32601,
+						"message": "Method not found: " + rpcReq.Method,
+					},
+				})
+				return
+			}
+		}
+
+		// Direct tool execution request
 		var req CallToolRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := json.Unmarshal(bodyBytes, &req); err != nil {
 			http.Error(w, `{"error":"invalid JSON"}`, http.StatusBadRequest)
 			return
 		}

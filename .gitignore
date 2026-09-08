@@ -52,4 +52,5 @@ redisdata/
 caddy_data/
 caddy_config/
 data/
+logs/
 *.log
