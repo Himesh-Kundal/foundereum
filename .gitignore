@@ -1,1 +1,30 @@
 .env
+
+# Binaries
+bin/
+dist/
+build/
+
+# Dependencies
+node_modules/
+vendor/
+
+# Go
+*.exe
+*.test
+*.out
+
+# Foundry & Contracts
+contracts/out/
+contracts/cache/
+contracts/broadcast/
+
+# IDE & OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Docker / volume
+pgdata/
