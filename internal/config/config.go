@@ -17,6 +17,7 @@ type Config struct {
 	PortAPI     int `env:"PORT_API" envDefault:"8080"`
 	PortGateway int `env:"PORT_GATEWAY" envDefault:"8081"`
 	PortMCP     int `env:"PORT_MCP" envDefault:"8082"`
+	GatewayURL  string `env:"GATEWAY_URL"`
 
 	JWTSecret     string `env:"JWT_SECRET" envDefault:"fnd_dev_jwt_secret_super_secure_32_bytes_min"`
 	AuthDevBypass bool   `env:"AUTH_DEV_BYPASS" envDefault:"true"`

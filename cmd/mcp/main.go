@@ -20,7 +20,10 @@ func main() {
 	logger := config.SetupLogger(cfg.LogLevel)
 	logger.Info("starting foundereum mcp server", "port", cfg.PortMCP, "gateway_port", cfg.PortGateway)
 
-	gwURL := fmt.Sprintf("http://localhost:%d", cfg.PortGateway)
+	gwURL := cfg.GatewayURL
+	if gwURL == "" {
+		gwURL = fmt.Sprintf("http://localhost:%d", cfg.PortGateway)
+	}
 	server := mcpserver.New(gwURL)
 
 	mux := http.NewServeMux()
