@@ -10,6 +10,13 @@ import http from 'http';
 import readline from 'readline';
 
 const args = process.argv.slice(2);
+if (args.includes('--help') || args.includes('-h')) {
+  console.log('Foundereum Claude Desktop MCP Bridge');
+  console.log('Usage: foundereum-mcp [--url <mcp-http-url>]');
+  console.log('Env: FOUNDEREUM_API_KEY=<key>');
+  process.exit(0);
+}
+
 let mcpUrl = 'http://localhost:8082/mcp';
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--url' && args[i + 1]) {

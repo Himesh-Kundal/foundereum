@@ -79,3 +79,47 @@ func TestSwapTokens(t *testing.T) {
 		t.Errorf("expected non-empty tx_hash")
 	}
 }
+
+func TestSwapTokens_SlippageExceeded(t *testing.T) {
+	spec, _ := tools.Get("swap_tokens")
+
+	// Slippage 600 bps = 6% > 5% allowed
+	args, _ := json.Marshal(map[string]any{
+		"token_in":     "USDC",
+		"token_out":    "HBAR",
+		"amount_in":    "5.0",
+		"slippage_bps": 600,
+	})
+
+	_, err := spec.Executor.Execute(context.Background(), tools.Input{Args: args})
+	if err == nil {
+		t.Fatal("expected error when slippage exceeds 5% threshold")
+	}
+}
+
+func TestSwapTokens_InvalidAmount(t *testing.T) {
+	spec, _ := tools.Get("swap_tokens")
+
+	// Negative amount
+	args, _ := json.Marshal(map[string]any{
+		"token_in":  "USDC",
+		"token_out": "HBAR",
+		"amount_in": "-5.0",
+	})
+	_, err := spec.Executor.Execute(context.Background(), tools.Input{Args: args})
+	if err == nil {
+		t.Fatal("expected error for negative amount")
+	}
+
+	// Scientific notation
+	argsScientific, _ := json.Marshal(map[string]any{
+		"token_in":  "USDC",
+		"token_out": "HBAR",
+		"amount_in": "1e18",
+	})
+	_, err = spec.Executor.Execute(context.Background(), tools.Input{Args: argsScientific})
+	if err == nil {
+		t.Fatal("expected error for scientific notation")
+	}
+}
+

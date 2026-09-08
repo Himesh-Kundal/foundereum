@@ -1,8 +1,7 @@
 package main
 
 import (
-	"crypto/rand"
-	"encoding/hex"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -12,10 +11,13 @@ import (
 
 	"github.com/foundereum/foundereum/internal/auth"
 	"github.com/foundereum/foundereum/internal/config"
+	db "github.com/foundereum/foundereum/internal/db/gen"
 	"github.com/foundereum/foundereum/internal/httpx"
+	"github.com/foundereum/foundereum/internal/ledger"
 	"github.com/foundereum/foundereum/internal/policy"
 	"github.com/foundereum/foundereum/internal/privy"
 	"github.com/foundereum/foundereum/internal/tools"
+	_ "github.com/foundereum/foundereum/internal/tools/deploy"
 	_ "github.com/foundereum/foundereum/internal/tools/graph"
 	_ "github.com/foundereum/foundereum/internal/tools/identity"
 	_ "github.com/foundereum/foundereum/internal/tools/swap"
@@ -24,6 +26,9 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/shopspring/decimal"
 )
 
 type MemoryStore struct {
@@ -34,6 +39,7 @@ type MemoryStore struct {
 	keys      map[string][]map[string]any
 	approvals map[string][]map[string]any
 	calls     map[string][]map[string]any
+	members   map[string][]map[string]any
 }
 
 func NewMemoryStore() *MemoryStore {
@@ -44,7 +50,23 @@ func NewMemoryStore() *MemoryStore {
 		keys:      make(map[string][]map[string]any),
 		approvals: make(map[string][]map[string]any),
 		calls:     make(map[string][]map[string]any),
+		members:   make(map[string][]map[string]any),
 	}
+}
+
+func toPgUUID(u uuid.UUID) pgtype.UUID {
+	return pgtype.UUID{Bytes: u, Valid: true}
+}
+
+func fromPgUUID(u pgtype.UUID) string {
+	if !u.Valid {
+		return ""
+	}
+	id, err := uuid.FromBytes(u.Bytes[:])
+	if err != nil {
+		return ""
+	}
+	return id.String()
 }
 
 func main() {
@@ -59,13 +81,29 @@ func main() {
 	privyClient := privy.NewClient(cfg)
 	memStore := NewMemoryStore()
 
+	ctx := context.Background()
+	var queries *db.Queries
+	var pgPool *pgxpool.Pool
+
+	pgPool, err = pgxpool.New(ctx, cfg.DatabaseURL)
+	if err != nil {
+		logger.Warn("postgres not connected, running with in-memory fallback", "err", err)
+	} else {
+		defer pgPool.Close()
+		queries = db.New(pgPool)
+		logger.Info("postgres connected for api control plane")
+	}
+
 	platformAccount := cfg.HederaPlatformAccount
 	if platformAccount == "" {
 		platformAccount = "0.0.PLATFORM"
 	}
 
-	// Default demo project for quick-start
 	demoProjID := "11111111-1111-1111-1111-111111111111"
+	demoOrgID := "00000000-0000-0000-0000-000000000001"
+	demoUserID := "00000000-0000-0000-0000-000000000002"
+
+	// Initialize memory store defaults
 	memStore.projects[demoProjID] = map[string]any{
 		"id":                      demoProjID,
 		"name":                    "market-scout",
@@ -104,6 +142,42 @@ func main() {
 		"privy_policy_id": "privy_pol_mock_market_scout",
 		"pushed_at":       time.Now().Format(time.RFC3339),
 	}
+	memStore.members[demoOrgID] = []map[string]any{
+		{
+			"email":  "operator@foundereum.org",
+			"role":   "owner",
+			"status": "active",
+		},
+	}
+
+	// Seed database if connected
+	if queries != nil {
+		demoOrgUUID, _ := uuid.Parse(demoOrgID)
+		demoUserUUID, _ := uuid.Parse(demoUserID)
+		demoProjUUID, _ := uuid.Parse(demoProjID)
+
+		_, _ = queries.UpsertUser(ctx, db.UpsertUserParams{
+			PrivyDid: "did:privy:demo-operator",
+			Email:    pgtype.Text{String: "operator@foundereum.org", Valid: true},
+		})
+		_, _ = queries.CreateOrg(ctx, "Acme Ventures")
+
+		// Create demo project if not exists
+		_, err := queries.GetProject(ctx, toPgUUID(demoProjUUID))
+		if err != nil {
+			minUSD := ledger.ToPgNumeric(decimal.RequireFromString("100"))
+			_, _ = queries.CreateProject(ctx, db.CreateProjectParams{
+				OrgID:                toPgUUID(demoOrgUUID),
+				Slug:                 "market-scout",
+				Name:                 "market-scout",
+				Status:               "active",
+				HcsTopicID:           pgtype.Text{String: platformAccount, Valid: true},
+				QuorumThreshold:      2,
+				WithdrawQuorumMinUsd: minUSD,
+			})
+			_ = demoUserUUID
+		}
+	}
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -116,6 +190,9 @@ func main() {
 		AllowedHeaders: []string{"*"},
 		MaxAge:         300,
 	}))
+
+	// Metrics endpoint
+	r.Handle("/metrics", httpx.MetricsHandler())
 
 	// Public Services Directory
 	r.Get("/services", func(w http.ResponseWriter, r *http.Request) {
@@ -147,7 +224,7 @@ func main() {
 	// Auth session & dev login
 	r.Post("/v1/auth/dev", func(w http.ResponseWriter, r *http.Request) {
 		userID := uuid.New()
-		orgID := uuid.New()
+		orgID, _ := uuid.Parse(demoOrgID)
 		token, err := authSvc.IssueToken(userID, orgID, "operator@foundereum.org", "owner")
 		if err != nil {
 			httpx.Err(w, http.StatusInternalServerError, "AUTH_FAILED", err.Error())
@@ -163,7 +240,7 @@ func main() {
 
 	r.Post("/v1/auth/session", func(w http.ResponseWriter, r *http.Request) {
 		userID := uuid.New()
-		orgID := uuid.New()
+		orgID, _ := uuid.Parse(demoOrgID)
 		token, _ := authSvc.IssueToken(userID, orgID, "operator@foundereum.org", "owner")
 		httpx.JSON(w, http.StatusOK, map[string]any{
 			"jwt":  token,
@@ -183,6 +260,55 @@ func main() {
 				"user": map[string]any{"id": claims.UserID, "email": claims.Email},
 				"org":  map[string]any{"id": claims.OrgID, "name": "Acme Ventures"},
 				"role": claims.Role,
+			})
+		})
+
+		// Organization members (Doc 06 §1)
+		pr.Get("/v1/orgs/{id}/members", func(w http.ResponseWriter, r *http.Request) {
+			orgID := chi.URLParam(r, "id")
+			memStore.mu.RLock()
+			mems := memStore.members[orgID]
+			memStore.mu.RUnlock()
+			if len(mems) == 0 {
+				mems = []map[string]any{
+					{"email": "operator@foundereum.org", "role": "owner", "status": "active"},
+				}
+			}
+			httpx.JSON(w, http.StatusOK, mems)
+		})
+
+		pr.Post("/v1/orgs/{id}/members", func(w http.ResponseWriter, r *http.Request) {
+			orgID := chi.URLParam(r, "id")
+			var req struct {
+				Email string `json:"email"`
+				Role  string `json:"role"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Email == "" {
+				httpx.Err(w, http.StatusBadRequest, "INVALID_REQUEST", "email is required")
+				return
+			}
+			if req.Role == "" {
+				req.Role = "approver"
+			}
+			newMem := map[string]any{
+				"email":  req.Email,
+				"role":   req.Role,
+				"status": "invited",
+			}
+			memStore.mu.Lock()
+			memStore.members[orgID] = append(memStore.members[orgID], newMem)
+			memStore.mu.Unlock()
+			httpx.JSON(w, http.StatusCreated, newMem)
+		})
+
+		pr.Post("/v1/orgs/{id}/members/me/auth-key", func(w http.ResponseWriter, r *http.Request) {
+			var req struct {
+				Pubkey string `json:"pubkey"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&req)
+			httpx.JSON(w, http.StatusOK, map[string]any{
+				"status": "registered",
+				"pubkey": req.Pubkey,
 			})
 		})
 
@@ -279,13 +405,13 @@ func main() {
 				return
 			}
 			httpx.JSON(w, http.StatusOK, map[string]any{
-				"project":      p,
-				"wallets":      wlt,
-				"balances_usd": "175.00",
+				"project":       p,
+				"wallets":       wlt,
+				"balances_usd":  "175.00",
 				"spend_24h_usd": "0.00",
-				"cap_usd":      "25.00",
-				"hcs_topic":    platformAccount,
-				"identity":     map[string]any{"scheme": "foundereum.hedera.v1", "agent_id": 1},
+				"cap_usd":       "25.00",
+				"hcs_topic":     platformAccount,
+				"identity":      map[string]any{"scheme": "foundereum.hedera.v1", "agent_id": 1},
 			})
 		})
 
@@ -304,6 +430,24 @@ func main() {
 					fmt.Sprintf("%s@faucet_hbar_10", platformAccount),
 				},
 				"message": fmt.Sprintf("Treasury funded with 50 USDC and 10 HBAR on %s", cfg.HederaNetwork),
+			})
+		})
+
+		// Treasury to Agent topup (Doc 06 §1)
+		pr.Post("/v1/projects/{id}/topup", func(w http.ResponseWriter, r *http.Request) {
+			id := chi.URLParam(r, "id")
+			var req struct {
+				AmountUSDC string `json:"amount_usdc"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&req)
+			if req.AmountUSDC == "" {
+				req.AmountUSDC = "10.000000"
+			}
+			httpx.JSON(w, http.StatusOK, map[string]any{
+				"status":      "transferred",
+				"project_id":  id,
+				"amount_usdc": req.AmountUSDC,
+				"tx_id":       fmt.Sprintf("%s@topup_agent", platformAccount),
 			})
 		})
 
@@ -350,9 +494,28 @@ func main() {
 				req.Name = "claude-desktop"
 			}
 
-			keyBytes := make([]byte, 16)
-			_, _ = rand.Read(keyBytes)
-			fullKey := "fnd_sk_live_" + hex.EncodeToString(keyBytes)
+			// Minimum funding guardrail (Doc 03 §W3 / Feature 1.11)
+			memStore.mu.RLock()
+			wallets := memStore.wallets[id]
+			memStore.mu.RUnlock()
+			hasFunding := true
+			for _, wlt := range wallets {
+				if wlt["kind"] == "agent" {
+					if usdcStr, ok := wlt["usdc"].(string); ok && usdcStr == "0.000000" {
+						hasFunding = false
+					}
+				}
+			}
+			if !hasFunding {
+				httpx.Err(w, http.StatusPaymentRequired, "TREASURY_UNDERFUNDED", "agent wallet requires minimum funding balance before API key issuance")
+				return
+			}
+
+			fullKey, err := auth.GenerateAPIKey(true)
+			if err != nil {
+				httpx.Err(w, http.StatusInternalServerError, "KEY_GEN_FAILED", err.Error())
+				return
+			}
 			prefix := fullKey[:16]
 
 			k := map[string]any{
@@ -371,6 +534,82 @@ func main() {
 			memStore.mu.Unlock()
 
 			httpx.JSON(w, http.StatusCreated, k)
+		})
+
+		// API Key Revocation (Feature 1.9 / Doc 08 §1)
+		pr.Delete("/v1/projects/{id}/keys/{key_id}", func(w http.ResponseWriter, r *http.Request) {
+			id := chi.URLParam(r, "id")
+			keyID := chi.URLParam(r, "key_id")
+			memStore.mu.Lock()
+			for _, k := range memStore.keys[id] {
+				if k["id"] == keyID {
+					k["status"] = "revoked"
+				}
+			}
+			memStore.mu.Unlock()
+			httpx.JSON(w, http.StatusOK, map[string]any{"status": "revoked", "id": keyID})
+		})
+
+		// API Key Rotation with 1-Hour Grace Window (Feature 1.8 / Doc 08 §5)
+		pr.Post("/v1/projects/{id}/keys/{key_id}/rotate", func(w http.ResponseWriter, r *http.Request) {
+			id := chi.URLParam(r, "id")
+			keyID := chi.URLParam(r, "key_id")
+
+			memStore.mu.Lock()
+			defer memStore.mu.Unlock()
+
+			var oldKey map[string]any
+			for _, k := range memStore.keys[id] {
+				if k["id"] == keyID && k["status"] == "active" {
+					oldKey = k
+					break
+				}
+			}
+
+			if oldKey == nil {
+				httpx.Err(w, http.StatusNotFound, "KEY_NOT_FOUND", "active key not found for rotation")
+				return
+			}
+
+			// Mark old key for retirement with 1-hour grace window
+			graceExpiresAt := time.Now().Add(1 * time.Hour).Format(time.RFC3339)
+			oldKey["status"] = "retiring"
+			oldKey["grace_expires_at"] = graceExpiresAt
+
+			// Generate new key
+			newFullKey, err := auth.GenerateAPIKey(true)
+			if err != nil {
+				httpx.Err(w, http.StatusInternalServerError, "KEY_GEN_FAILED", err.Error())
+				return
+			}
+			newKeyID := uuid.NewString()
+			name := "rotated-key"
+			if oldName, ok := oldKey["name"].(string); ok {
+				name = oldName + "-rotated"
+			}
+
+			newK := map[string]any{
+				"id":           newKeyID,
+				"name":         name,
+				"prefix":       newFullKey[:16],
+				"status":       "active",
+				"carry_usd":    "0.0000000000",
+				"last_used_at": nil,
+				"created_at":   time.Now().Format(time.RFC3339),
+				"key":          newFullKey,
+			}
+
+			memStore.keys[id] = append(memStore.keys[id], newK)
+
+			httpx.JSON(w, http.StatusOK, map[string]any{
+				"new_key": newK,
+				"retired_key": map[string]any{
+					"id":                     keyID,
+					"status":                 "retiring",
+					"grace_period_window":    "1h",
+					"grace_expires_at":       graceExpiresAt,
+				},
+			})
 		})
 
 		pr.Get("/v1/projects/{id}/mcp-config", func(w http.ResponseWriter, r *http.Request) {
@@ -430,22 +669,22 @@ func main() {
 				"hashscan_url": fmt.Sprintf("https://hashscan.io/%s/topic/%s", cfg.HederaNetwork, topicID),
 				"messages": []map[string]any{
 					{
-						"seq":   101,
-						"ts":    time.Now().Add(-5 * time.Minute).Format(time.RFC3339),
-						"tool":  "analyze_pool_health",
+						"seq":    101,
+						"ts":     time.Now().Add(-5 * time.Minute).Format(time.RFC3339),
+						"tool":   "analyze_pool_health",
 						"amount": "500",
-						"usd":   "0.0005",
-						"payer": platformAccount,
-						"tx_id": fmt.Sprintf("%s@1757300000.123456789", platformAccount),
+						"usd":    "0.0005",
+						"payer":  platformAccount,
+						"tx_id":  fmt.Sprintf("%s@1757300000.123456789", platformAccount),
 					},
 					{
-						"seq":   102,
-						"ts":    time.Now().Add(-2 * time.Minute).Format(time.RFC3339),
-						"tool":  "swap_tokens",
+						"seq":    102,
+						"ts":     time.Now().Add(-2 * time.Minute).Format(time.RFC3339),
+						"tool":   "swap_tokens",
 						"amount": "7500",
-						"usd":   "0.0075",
-						"payer": platformAccount,
-						"tx_id": fmt.Sprintf("%s@1757300120.987654321", platformAccount),
+						"usd":    "0.0075",
+						"payer":  platformAccount,
+						"tx_id":  fmt.Sprintf("%s@1757300120.987654321", platformAccount),
 					},
 				},
 			})

@@ -101,6 +101,17 @@ type Payments struct {
 	SettledAt   pgtype.Timestamptz `json:"settled_at"`
 }
 
+type Pipelines struct {
+	ID         pgtype.UUID        `json:"id"`
+	ProjectID  pgtype.UUID        `json:"project_id"`
+	Prompt     string             `json:"prompt"`
+	Manifest   pgtype.Text        `json:"manifest"`
+	SchemaName pgtype.Text        `json:"schema_name"`
+	Status     string             `json:"status"`
+	Logs       pgtype.Text        `json:"logs"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+}
+
 type Policies struct {
 	ID            pgtype.UUID        `json:"id"`
 	ProjectID     pgtype.UUID        `json:"project_id"`

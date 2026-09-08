@@ -149,6 +149,17 @@ CREATE TABLE approvals (
   expires_at    TIMESTAMPTZ NOT NULL
 );
 
+CREATE TABLE pipelines (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_id  UUID NOT NULL REFERENCES projects(id),
+  prompt      TEXT NOT NULL,
+  manifest    TEXT,
+  schema_name TEXT,
+  status      TEXT NOT NULL,
+  logs        TEXT,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE tool_prices (
   tool             TEXT PRIMARY KEY,
   base_usd         NUMERIC(20,10) NOT NULL DEFAULT 0,
@@ -160,6 +171,7 @@ CREATE TABLE tool_prices (
 
 -- +goose Down
 DROP TABLE IF EXISTS tool_prices CASCADE;
+DROP TABLE IF EXISTS pipelines CASCADE;
 DROP TABLE IF EXISTS approvals CASCADE;
 DROP TABLE IF EXISTS ledger_entries CASCADE;
 DROP TABLE IF EXISTS payments CASCADE;

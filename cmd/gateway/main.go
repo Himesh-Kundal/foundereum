@@ -16,12 +16,15 @@ import (
 	"github.com/foundereum/foundereum/internal/httpx"
 	"github.com/foundereum/foundereum/internal/privy"
 	"github.com/foundereum/foundereum/internal/tools"
+	_ "github.com/foundereum/foundereum/internal/tools/deploy"
 	_ "github.com/foundereum/foundereum/internal/tools/graph"
 	_ "github.com/foundereum/foundereum/internal/tools/identity"
 	_ "github.com/foundereum/foundereum/internal/tools/swap"
 	_ "github.com/foundereum/foundereum/internal/tools/wallet"
 	"github.com/foundereum/foundereum/internal/wallet"
 	"github.com/foundereum/foundereum/internal/x402"
+	"github.com/foundereum/foundereum/internal/x402/blocky"
+	"github.com/foundereum/foundereum/internal/x402/self"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
@@ -50,8 +53,21 @@ func main() {
 	defer rdb.Close()
 
 	privyClient := privy.NewClient(cfg)
-	privySigner := wallet.NewPrivySigner(privyClient)
-	var facilitator x402.Facilitator = x402.NewMockFacilitator(cfg.HederaPlatformAccount)
+	var signer wallet.Signer
+	if cfg.WalletSigner == "local" {
+		signer, _ = wallet.NewLocalSigner("")
+	} else {
+		signer = wallet.NewPrivySigner(privyClient)
+	}
+	var facilitator x402.Facilitator
+	switch cfg.FacilitatorMode {
+	case "blocky":
+		facilitator = blocky.New(cfg.Blocky402URL, cfg.MockChains)
+	case "self":
+		facilitator = self.New(cfg)
+	default:
+		facilitator = x402.NewMockFacilitator(cfg.HederaPlatformAccount)
+	}
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -65,6 +81,8 @@ func main() {
 		ExposedHeaders: []string{"X-PAYMENT", "Idempotency-Key"},
 		MaxAge:         300,
 	}))
+
+	r.Handle("/metrics", httpx.MetricsHandler())
 
 	r.Get("/v1/self", func(w http.ResponseWriter, r *http.Request) {
 		httpx.JSON(w, http.StatusOK, map[string]any{"status": "ok", "service": "gateway"})
@@ -86,7 +104,7 @@ func main() {
 
 		// Sign transfer hash using Privy / local wallet signer
 		bodyHash := sha256.Sum256([]byte("mock_tx_body_" + req.Nonce))
-		sig, err := privySigner.RawSign(r.Context(), "agent_wallet", bodyHash[:])
+		sig, err := signer.RawSign(r.Context(), "agent_wallet", bodyHash[:])
 		if err != nil {
 			httpx.Err(w, http.StatusInternalServerError, "SIGNING_FAILED", err.Error())
 			return
@@ -109,12 +127,61 @@ func main() {
 		})
 	})
 
+	// Rate limiter Lua script (Doc 04 / Doc 05: Redis token bucket 10 rps, burst 30)
+	tokenBucketScript := redis.NewScript(`
+local key = KEYS[1]
+local limit = tonumber(ARGV[1])
+local rate = tonumber(ARGV[2])
+local now = tonumber(ARGV[3])
+
+local data = redis.call('HMGET', key, 'tokens', 'last_updated')
+local tokens = tonumber(data[1])
+local last = tonumber(data[2])
+
+if not tokens then
+    tokens = limit - 1
+    last = now
+    redis.call('HMSET', key, 'tokens', tokens, 'last_updated', last)
+    redis.call('EXPIRE', key, 3600)
+    return 1
+else
+    local delta = math.max(0, now - last)
+    tokens = math.min(limit, tokens + delta * rate)
+    last = now
+    if tokens >= 1 then
+        tokens = tokens - 1
+        redis.call('HMSET', key, 'tokens', tokens, 'last_updated', last)
+        redis.call('EXPIRE', key, 3600)
+        return 1
+    else
+        redis.call('HSET', key, 'last_updated', last)
+        return 0
+    end
+end
+`)
+
 	// POST /v1/tools/{tool}: Core x402-gated tool execution
 	r.Post("/v1/tools/{tool}", func(w http.ResponseWriter, r *http.Request) {
 		toolName := chi.URLParam(r, "tool")
 		spec, ok := tools.Get(toolName)
 		if !ok {
 			httpx.Err(w, http.StatusNotFound, "TOOL_NOT_FOUND", "requested tool not found in registry")
+			return
+		}
+
+		// Extract API key for rate limiting and scoping
+		authHeader := r.Header.Get("Authorization")
+		keyID := "anon:" + r.RemoteAddr
+		if strings.HasPrefix(authHeader, "Bearer ") {
+			rawKey := strings.TrimPrefix(authHeader, "Bearer ")
+			kh := sha256.Sum256([]byte(rawKey))
+			keyID = hex.EncodeToString(kh[:8])
+		}
+
+		// Redis token bucket rate limiting (10 rps, burst 30)
+		rlKey := "rl:" + keyID
+		if allowed, err := tokenBucketScript.Run(r.Context(), rdb, []string{rlKey}, 30, 10, time.Now().Unix()).Int(); err == nil && allowed == 0 {
+			httpx.Err(w, http.StatusTooManyRequests, "RATE_LIMITED", "rate limit exceeded (10 requests/second, burst 30)")
 			return
 		}
 
@@ -126,6 +193,16 @@ func main() {
 		idemKey := r.Header.Get("Idempotency-Key")
 		if idemKey == "" {
 			idemKey = uuid.NewString()
+		}
+
+		// Idempotency cache lookup (24h TTL)
+		idemCacheKey := fmt.Sprintf("idem:%s:%s", keyID, idemKey)
+		if cachedResp, err := rdb.Get(r.Context(), idemCacheKey).Result(); err == nil && cachedResp != "" {
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("X-Cache", "HIT")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(cachedResp))
+			return
 		}
 
 		// Calculate pricing estimate
@@ -204,7 +281,12 @@ func main() {
 			return
 		}
 
-		_ = rdb.Del(r.Context(), "x402:challenge:"+paymentBlob.Nonce).Err()
+		// Atomic single-use challenge consumption via GETDEL (Doc 05 / Doc 08: Replay prevention)
+		chRaw, err := rdb.GetDel(r.Context(), "x402:challenge:"+paymentBlob.Nonce).Result()
+		if err == redis.Nil || chRaw == "" {
+			httpx.Err(w, http.StatusConflict, "PAYMENT_REPLAYED", "payment challenge nonce has already been consumed or expired")
+			return
+		}
 
 		req := x402.Requirement{
 			Scheme:  paymentBlob.Scheme,
@@ -236,8 +318,13 @@ func main() {
 		}
 
 		actUSD := x402.Actual(spec.Pricing, out.Bytes, rawArgs)
+		carryUSD := "0"
+		if actUSD.GreaterThan(estUSD) {
+			diff := actUSD.Sub(estUSD)
+			carryUSD = diff.String()
+		}
 
-		httpx.JSON(w, http.StatusOK, map[string]any{
+		respData := map[string]any{
 			"result":  out.Result,
 			"call_id": uuid.NewString(),
 			"payment": map[string]any{
@@ -250,9 +337,17 @@ func main() {
 			"metering": map[string]any{
 				"estimate_usd": estUSD.String(),
 				"actual_usd":   actUSD.String(),
+				"carry_usd":    carryUSD,
 				"bytes":        out.Bytes,
 			},
-		})
+		}
+
+		// Cache in Redis for idempotency replay (24h TTL)
+		if respJSON, err := json.Marshal(respData); err == nil {
+			_ = rdb.Set(r.Context(), idemCacheKey, respJSON, 24*time.Hour).Err()
+		}
+
+		httpx.JSON(w, http.StatusOK, respData)
 	})
 
 	server := &http.Server{

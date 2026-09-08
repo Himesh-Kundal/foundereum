@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"errors"
 	"fmt"
@@ -68,6 +69,26 @@ func (s *Service) VerifyToken(tokenStr string) (*SessionClaims, error) {
 		return claims, nil
 	}
 	return nil, ErrInvalidToken
+}
+
+const base62Chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+
+// GenerateAPIKey creates a cryptographically secure key matching Doc 08 spec:
+// fnd_sk_{live|test}_{22 base62 characters}
+func GenerateAPIKey(live bool) (string, error) {
+	prefix := "fnd_sk_live_"
+	if !live {
+		prefix = "fnd_sk_test_"
+	}
+	randomBytes := make([]byte, 22)
+	if _, err := rand.Read(randomBytes); err != nil {
+		return "", err
+	}
+	chars := make([]byte, 22)
+	for i, b := range randomBytes {
+		chars[i] = base62Chars[int(b)%len(base62Chars)]
+	}
+	return prefix + string(chars), nil
 }
 
 func HashAPIKey(key string) []byte {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/foundereum/foundereum/internal/tools"
 	"github.com/foundereum/foundereum/internal/x402"
@@ -84,12 +85,31 @@ type swapTokensExecutor struct{}
 
 func (e *swapTokensExecutor) Execute(ctx context.Context, in tools.Input) (tools.Output, error) {
 	var args struct {
-		TokenIn  string `json:"token_in"`
-		TokenOut string `json:"token_out"`
-		AmountIn string `json:"amount_in"`
+		TokenIn     string `json:"token_in"`
+		TokenOut    string `json:"token_out"`
+		AmountIn    string `json:"amount_in"`
+		SlippageBps int    `json:"slippage_bps"`
 	}
 	if err := json.Unmarshal(in.Args, &args); err != nil {
 		return tools.Output{}, fmt.Errorf("invalid arguments: %w", err)
+	}
+
+	// Security: reject scientific notation or signs (Doc 08 §6)
+	if strings.ContainsAny(args.AmountIn, "eE+-") {
+		return tools.Output{}, fmt.Errorf("invalid amount_in format: scientific notation or signs disallowed")
+	}
+
+	amt, err := decimal.NewFromString(args.AmountIn)
+	if err != nil || amt.LessThanOrEqual(decimal.Zero) {
+		return tools.Output{}, fmt.Errorf("amount_in must be a positive number")
+	}
+
+	// Security: max slippage cap 5% (500 bps) (Doc 08 §6)
+	if args.SlippageBps > 500 {
+		return tools.Output{}, fmt.Errorf("slippage_bps %d exceeds maximum safety threshold of 500 (5%%)", args.SlippageBps)
+	}
+	if args.SlippageBps == 0 {
+		args.SlippageBps = 50
 	}
 
 	txHash := "0x789abcde1234567890abcdef1234567890abcdef1234567890abcdef12345678"
@@ -99,6 +119,7 @@ func (e *swapTokensExecutor) Execute(ctx context.Context, in tools.Input) (tools
 		"token_out":    args.TokenOut,
 		"amount_in":    args.AmountIn,
 		"amount_out":   "85.420000",
+		"slippage_bps": args.SlippageBps,
 		"tx_hash":      txHash,
 		"hashscan_url": "https://hashscan.io/testnet/transaction/" + txHash,
 	}

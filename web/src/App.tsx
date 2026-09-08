@@ -33,7 +33,7 @@ interface WalletInfo {
 }
 
 export function App() {
-  const [activeTab, setActiveTab] = useState<"overview" | "wallets" | "policy" | "keys" | "calls" | "approvals" | "services">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "wallets" | "policy" | "keys" | "calls" | "approvals" | "services" | "audit">("overview");
   const [copied, setCopied] = useState<string | null>(null);
 
   const [project] = useState<Project>({
@@ -188,6 +188,17 @@ export function App() {
             >
               <Search className="h-4 w-4" />
               Services Directory
+            </button>
+            <button
+              onClick={() => setActiveTab("audit")}
+              className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                activeTab === "audit"
+                  ? "bg-indigo-600/20 text-indigo-400 border border-indigo-500/30"
+                  : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50"
+              }`}
+            >
+              <CheckCircle2 className="h-4 w-4" />
+              HCS Consensus Audit
             </button>
           </nav>
         </div>
@@ -512,9 +523,108 @@ export function App() {
                   <span className="px-2 py-0.5 rounded bg-zinc-800 text-zinc-300 font-mono">$0.00001 base + $0.000002/KB</span>
                 </div>
                 <p className="text-zinc-400 mt-2">
-                  Execute GraphQL query against any indexed subgraph on The Graph.
+                  Execute GraphQL query against any indexed subgraph on The Graph network.
                 </p>
               </div>
+
+              <div className="p-4 bg-zinc-950 rounded-lg border border-zinc-800 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold font-mono text-indigo-400">compare_protocol_tvl</span>
+                  <span className="px-2 py-0.5 rounded bg-zinc-800 text-zinc-300 font-mono">$0.0005 base + $0.000002/KB</span>
+                </div>
+                <p className="text-zinc-400 mt-2">
+                  Compare TVL and 7-day trend metrics across DEXs using Messari standardized subgraphs on The Graph.
+                </p>
+              </div>
+
+              <div className="p-4 bg-zinc-950 rounded-lg border border-zinc-800 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold font-mono text-indigo-400">get_subgraph_schema</span>
+                  <span className="px-2 py-0.5 rounded bg-zinc-800 text-zinc-300 font-mono">$0.00001 flat</span>
+                </div>
+                <p className="text-zinc-400 mt-2">
+                  Inspect entity definitions and schema fields for any subgraph deployment.
+                </p>
+              </div>
+
+              <div className="p-4 bg-zinc-950 rounded-lg border border-zinc-800 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold font-mono text-indigo-400">deploy_contract</span>
+                  <span className="px-2 py-0.5 rounded bg-zinc-800 text-zinc-300 font-mono">$0.02 base + $0.001/KB bytecode</span>
+                </div>
+                <p className="text-zinc-400 mt-2">
+                  Deploy compiled EVM bytecode and constructor arguments onto Hedera EVM (chainId 296).
+                </p>
+              </div>
+
+              <div className="p-4 bg-zinc-950 rounded-lg border border-zinc-800 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold font-mono text-indigo-400">verify_agent</span>
+                  <span className="px-2 py-0.5 rounded bg-zinc-800 text-zinc-300 font-mono">$0.00001 flat</span>
+                </div>
+                <p className="text-zinc-400 mt-2">
+                  Verify ERC-8004 on-chain agent identity token against AgentIdentityRegistry contract.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === "audit" && (
+          <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-lg font-semibold text-white">Hedera Consensus Service (HCS) Audit Trail</h3>
+                <p className="text-xs text-zinc-400 mt-1">
+                  Immutable sequence of all settled x402 tool executions committed to Hedera topic <span className="font-mono text-indigo-400">{project.hcs_topic_id}</span>.
+                </p>
+              </div>
+              <a
+                href={`https://hashscan.io/testnet/topic/${project.hcs_topic_id}`}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-xs font-mono text-indigo-400 rounded-lg border border-zinc-700 transition"
+              >
+                <span>View on HashScan</span>
+                <ExternalLink className="h-3 w-3" />
+              </a>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs font-mono">
+                <thead className="bg-zinc-950 text-zinc-400 border-b border-zinc-800">
+                  <tr>
+                    <th className="py-2.5 px-3">Seq #</th>
+                    <th className="py-2.5 px-3">Timestamp</th>
+                    <th className="py-2.5 px-3">Tool</th>
+                    <th className="py-2.5 px-3">USDC Charged</th>
+                    <th className="py-2.5 px-3">Payer Account</th>
+                    <th className="py-2.5 px-3">Transaction ID</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-800/50 text-zinc-300">
+                  <tr>
+                    <td className="py-3 px-3 text-indigo-400 font-bold">#102</td>
+                    <td className="py-3 px-3 text-zinc-400">2 mins ago</td>
+                    <td className="py-3 px-3 text-white">swap_tokens</td>
+                    <td className="py-3 px-3 text-emerald-400">$0.007500</td>
+                    <td className="py-3 px-3">{project.hcs_topic_id}</td>
+                    <td className="py-3 px-3 truncate max-w-[200px] text-zinc-500">{project.hcs_topic_id}@1757300120.987654321</td>
+                  </tr>
+                  <tr>
+                    <td className="py-3 px-3 text-indigo-400 font-bold">#101</td>
+                    <td className="py-3 px-3 text-zinc-400">5 mins ago</td>
+                    <td className="py-3 px-3 text-white">analyze_pool_health</td>
+                    <td className="py-3 px-3 text-emerald-400">$0.000500</td>
+                    <td className="py-3 px-3">{project.hcs_topic_id}</td>
+                    <td className="py-3 px-3 truncate max-w-[200px] text-zinc-500">{project.hcs_topic_id}@1757300000.123456789</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div className="mt-4 p-3 bg-zinc-950/60 rounded-lg border border-zinc-800/80 text-xs text-zinc-400">
+              <span className="text-emerald-400 font-medium">✓ Cryptographic Guarantee: </span>
+              Every paid request generates a timestamped topic message with running hash verification through Hedera consensus nodes.
             </div>
           </div>
         )}

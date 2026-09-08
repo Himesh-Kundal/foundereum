@@ -67,3 +67,22 @@ func TestAuthService_MiddlewareValidToken(t *testing.T) {
 		t.Fatalf("expected 200 OK with valid token, got %d", rec.Code)
 	}
 }
+
+func TestGenerateAPIKey(t *testing.T) {
+	liveKey, err := GenerateAPIKey(true)
+	if err != nil {
+		t.Fatalf("failed to generate live key: %v", err)
+	}
+	if len(liveKey) != 34 { // "fnd_sk_live_" (12 chars) + 22 chars = 34
+		t.Errorf("expected 34 chars for live key, got %d (%s)", len(liveKey), liveKey)
+	}
+
+	testKey, err := GenerateAPIKey(false)
+	if err != nil {
+		t.Fatalf("failed to generate test key: %v", err)
+	}
+	if len(testKey) != 34 { // "fnd_sk_test_" (12 chars) + 22 chars = 34
+		t.Errorf("expected 34 chars for test key, got %d (%s)", len(testKey), testKey)
+	}
+}
+
