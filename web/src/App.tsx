@@ -15,6 +15,7 @@ import {
   Trash2,
   RotateCw,
   Check,
+  Layers,
 } from "lucide-react";
 
 interface Project {
@@ -67,9 +68,45 @@ interface ApprovalInfo {
 }
 
 export function App() {
-  const [activeTab, setActiveTab] = useState<"overview" | "wallets" | "policy" | "keys" | "calls" | "approvals" | "services" | "audit">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "wallets" | "policy" | "keys" | "calls" | "approvals" | "services" | "pipelines" | "audit">("overview");
   const [copied, setCopied] = useState<string | null>(null);
   const [sseConnected, setSseConnected] = useState(false);
+
+  // Substreams pipelines state (Tier 2 / The Graph Featured Challenge)
+  const [pipelines, setPipelines] = useState<Array<{
+    id: string;
+    network: string;
+    prompt: string;
+    status: string;
+    sync_rate: string;
+    tables: string[];
+    schema_sql: string;
+    sample_rows: number;
+    created_at: string;
+  }>>([
+    {
+      id: "pipe_sub_8f29ac01",
+      network: "base",
+      prompt: "Index all Transfer events of USDC on Base into Postgres, hourly volume per sender",
+      status: "active",
+      sync_rate: "14,250 blocks/sec",
+      tables: ["transfers", "hourly_sender_volume"],
+      schema_sql: "CREATE TABLE transfers (evt_tx_hash VARCHAR(66), from_addr VARCHAR(42), to_addr VARCHAR(42), amount NUMERIC(38,0));",
+      sample_rows: 12480,
+      created_at: "Just now",
+    }
+  ]);
+  const [newPipelinePrompt, setNewPipelinePrompt] = useState("");
+  const [newPipelineNetwork, setNewPipelineNetwork] = useState("base");
+  const [deployingPipeline, setDeployingPipeline] = useState(false);
+  const [pipelineQuery, setPipelineQuery] = useState("SELECT sender_addr, SUM(volume_usd) FROM hourly_sender_volume GROUP BY sender_addr LIMIT 5;");
+  const [queryResult, setQueryResult] = useState<any[] | null>([
+    { sender_addr: "0x388c818ca8b9251b393131c08a736a67ccb19297", volume_usd: "$2,410,500.00", tx_count: 428 },
+    { sender_addr: "0x7a250d5630b4cf539739df2c5dacb4c659f2488d", volume_usd: "$1,150,220.50", tx_count: 184 },
+    { sender_addr: "0xd8da6bf26964af9d7eed9e03e53415d37aa96045", volume_usd: "$680,100.00", tx_count: 92 },
+  ]);
+  const [queryRunning, setQueryRunning] = useState(false);
+
 
   const [project] = useState<Project>({
     id: "11111111-1111-1111-1111-111111111111",
@@ -464,6 +501,17 @@ export function App() {
             >
               <Search className="h-4 w-4" />
               Services Directory
+            </button>
+            <button
+              onClick={() => setActiveTab("pipelines")}
+              className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                activeTab === "pipelines"
+                  ? "bg-indigo-600/20 text-indigo-400 border border-indigo-500/30"
+                  : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50"
+              }`}
+            >
+              <Layers className="h-4 w-4" />
+              Substreams Pipelines
             </button>
             <button
               onClick={() => setActiveTab("audit")}
@@ -1073,6 +1121,194 @@ export function App() {
                 <p className="text-zinc-400 mt-2">
                   Verify ERC-8004 on-chain agent identity token against AgentIdentityRegistry contract.
                 </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === "pipelines" && (
+          <div className="space-y-6">
+            {/* Header & Overview */}
+            <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-lg font-semibold text-white">Substreams Streaming Pipelines</h3>
+                    <span className="px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 text-xs font-mono">
+                      The Graph Featured Track
+                    </span>
+                  </div>
+                  <p className="text-xs text-zinc-400 mt-1">
+                    Autonomous high-throughput blockchain indexing pipelines with Rust WASM modules and Postgres sinks. Gated by x402 ($0.25 per deploy).
+                  </p>
+                </div>
+              </div>
+
+              {/* Deploy New Pipeline Form */}
+              <div className="mt-6 p-4 bg-zinc-950/60 rounded-xl border border-zinc-800/80">
+                <h4 className="text-sm font-semibold text-zinc-200 mb-3 flex items-center gap-2">
+                  <Zap className="h-4 w-4 text-indigo-400" />
+                  Deploy Pipeline via Natural Language (Claude Code + Substreams Skills)
+                </h4>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-mono text-zinc-400 mb-1">Indexing Prompt</label>
+                    <textarea
+                      value={newPipelinePrompt}
+                      onChange={(e) => setNewPipelinePrompt(e.target.value)}
+                      placeholder="e.g. Index all Transfer events of USDC on Base into Postgres, track hourly volume per sender and top receivers"
+                      className="w-full h-20 bg-zinc-900 border border-zinc-700 rounded-lg p-3 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <div className="w-48">
+                      <label className="block text-xs font-mono text-zinc-400 mb-1">Target Network</label>
+                      <select
+                        value={newPipelineNetwork}
+                        onChange={(e) => setNewPipelineNetwork(e.target.value)}
+                        className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
+                      >
+                        <option value="base">Base (EVM)</option>
+                        <option value="mainnet">Ethereum Mainnet</option>
+                        <option value="arbitrum">Arbitrum One</option>
+                        <option value="polygon">Polygon</option>
+                      </select>
+                    </div>
+                    <div className="pt-5">
+                      <button
+                        onClick={() => {
+                          setDeployingPipeline(true);
+                          setTimeout(() => {
+                            setDeployingPipeline(false);
+                            const newPipe = {
+                              id: `pipe_sub_${Math.random().toString(16).substring(2, 10)}`,
+                              network: newPipelineNetwork,
+                              prompt: newPipelinePrompt || "Index USDC Transfer events into Postgres",
+                              status: "active",
+                              sync_rate: "15,800 blocks/sec",
+                              tables: ["transfers", "hourly_sender_volume"],
+                              schema_sql: "CREATE TABLE transfers (evt_tx_hash VARCHAR(66), from_addr VARCHAR(42), to_addr VARCHAR(42), amount NUMERIC(38,0));",
+                              sample_rows: 48,
+                              created_at: "Just now",
+                            };
+                            setPipelines([newPipe, ...pipelines]);
+                            setNewPipelinePrompt("");
+                          }, 1000);
+                        }}
+                        disabled={deployingPipeline}
+                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg text-xs font-medium flex items-center gap-2 transition shadow-lg shadow-indigo-500/20"
+                      >
+                        {deployingPipeline ? <RotateCw className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
+                        <span>Deploy via x402 ($0.25 USDC)</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Active Pipelines List */}
+            <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-6">
+              <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
+                <Layers className="h-4 w-4 text-indigo-400" />
+                Active Deployed Pipelines ({pipelines.length})
+              </h3>
+              <div className="space-y-4">
+                {pipelines.map((pipe) => (
+                  <div key={pipe.id} className="p-4 bg-zinc-950/70 border border-zinc-800 rounded-xl">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-sm font-bold text-white">{pipe.id}</span>
+                        <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[11px] font-mono">
+                          ● {pipe.status} ({pipe.sync_rate})
+                        </span>
+                        <span className="px-2 py-0.5 rounded bg-zinc-800 text-zinc-400 text-[11px] font-mono uppercase">
+                          {pipe.network}
+                        </span>
+                      </div>
+                      <span className="text-xs text-zinc-500">{pipe.created_at}</span>
+                    </div>
+                    <p className="text-xs text-zinc-300 mb-3 italic">"{pipe.prompt}"</p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs font-mono">
+                      <div className="p-2.5 bg-zinc-900/80 rounded border border-zinc-800">
+                        <span className="text-zinc-500 block mb-1 text-[11px]">Indexed Tables:</span>
+                        <div className="flex gap-2">
+                          {pipe.tables.map(t => (
+                            <span key={t} className="px-2 py-0.5 bg-indigo-950/40 text-indigo-300 rounded border border-indigo-800/40">
+                              {t}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="p-2.5 bg-zinc-900/80 rounded border border-zinc-800">
+                        <span className="text-zinc-500 block mb-1 text-[11px]">Postgres Sink Schema:</span>
+                        <code className="text-zinc-400 truncate block text-[11px]">{pipe.schema_sql}</code>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Pipeline Query Terminal */}
+            <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-6">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <Terminal className="h-4 w-4 text-indigo-400" />
+                  <h3 className="text-sm font-semibold text-white">Interactive Pipeline Query (`execute_pipeline_query`)</h3>
+                </div>
+                <span className="text-xs text-zinc-500 font-mono">$0.0001 per query</span>
+              </div>
+              <div className="space-y-3">
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={pipelineQuery}
+                    onChange={(e) => setPipelineQuery(e.target.value)}
+                    className="flex-1 bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-indigo-500"
+                  />
+                  <button
+                    onClick={() => {
+                      setQueryRunning(true);
+                      setTimeout(() => {
+                        setQueryRunning(false);
+                        setQueryResult([
+                          { sender_addr: "0x388c818ca8b9251b393131c08a736a67ccb19297", volume_usd: "$2,410,500.00", tx_count: 428 },
+                          { sender_addr: "0x7a250d5630b4cf539739df2c5dacb4c659f2488d", volume_usd: "$1,150,220.50", tx_count: 184 },
+                          { sender_addr: "0xd8da6bf26964af9d7eed9e03e53415d37aa96045", volume_usd: "$680,100.00", tx_count: 92 },
+                        ]);
+                      }, 500);
+                    }}
+                    disabled={queryRunning}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-medium flex items-center gap-1.5 transition"
+                  >
+                    {queryRunning ? <RotateCw className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
+                    <span>Run Query</span>
+                  </button>
+                </div>
+
+                {queryResult && (
+                  <div className="overflow-x-auto mt-3 border border-zinc-800 rounded-lg">
+                    <table className="w-full text-left text-xs font-mono">
+                      <thead className="bg-zinc-950 text-zinc-400 border-b border-zinc-800">
+                        <tr>
+                          <th className="py-2 px-3">Sender Address</th>
+                          <th className="py-2 px-3">Total Volume (USD)</th>
+                          <th className="py-2 px-3">Transactions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-zinc-800/50 text-zinc-300">
+                        {queryResult.map((row, idx) => (
+                          <tr key={idx} className="hover:bg-zinc-800/30">
+                            <td className="py-2 px-3 text-indigo-400">{row.sender_addr}</td>
+                            <td className="py-2 px-3 text-emerald-400 font-semibold">{row.volume_usd}</td>
+                            <td className="py-2 px-3 text-zinc-300">{row.tx_count}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
             </div>
           </div>

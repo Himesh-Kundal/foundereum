@@ -72,3 +72,46 @@ func TestCompareProtocolTVL(t *testing.T) {
 	}
 }
 
+func TestDeploySubstreamsPipeline(t *testing.T) {
+	spec, ok := tools.Get("deploy_substreams_pipeline")
+	if !ok {
+		t.Fatalf("deploy_substreams_pipeline not found in registry")
+	}
+
+	in := tools.Input{
+		ProjectID: uuid.New(),
+		Args:      json.RawMessage(`{"prompt":"Index USDC transfers on Base into Postgres","network":"base"}`),
+	}
+	out, err := spec.Executor.Execute(context.Background(), in)
+	if err != nil {
+		t.Fatalf("execute deploy_substreams_pipeline failed: %v", err)
+	}
+
+	resMap, ok := out.Result.(map[string]any)
+	if !ok || resMap["pipeline_id"] == nil || resMap["status"] != "active" {
+		t.Fatalf("expected active pipeline_id, got: %v", out.Result)
+	}
+}
+
+func TestExecutePipelineQuery(t *testing.T) {
+	spec, ok := tools.Get("execute_pipeline_query")
+	if !ok {
+		t.Fatalf("execute_pipeline_query not found in registry")
+	}
+
+	in := tools.Input{
+		ProjectID: uuid.New(),
+		Args:      json.RawMessage(`{"pipeline_id":"pipe_sub_test","query":"SELECT sender_addr, SUM(volume_usd) FROM hourly_sender_volume GROUP BY sender_addr"}`),
+	}
+	out, err := spec.Executor.Execute(context.Background(), in)
+	if err != nil {
+		t.Fatalf("execute execute_pipeline_query failed: %v", err)
+	}
+
+	resMap, ok := out.Result.(map[string]any)
+	if !ok || resMap["rows"] == nil {
+		t.Fatalf("expected rows in query result, got: %v", out.Result)
+	}
+}
+
+
