@@ -59,6 +59,11 @@ func main() {
 	privyClient := privy.NewClient(cfg)
 	memStore := NewMemoryStore()
 
+	platformAccount := cfg.HederaPlatformAccount
+	if platformAccount == "" {
+		platformAccount = "0.0.PLATFORM"
+	}
+
 	// Default demo project for quick-start
 	demoProjID := "11111111-1111-1111-1111-111111111111"
 	memStore.projects[demoProjID] = map[string]any{
@@ -66,7 +71,7 @@ func main() {
 		"name":                    "market-scout",
 		"slug":                    "market-scout",
 		"status":                  "active",
-		"hcs_topic_id":            "0.0.10413602",
+		"hcs_topic_id":            platformAccount,
 		"quorum_threshold":        2,
 		"withdraw_quorum_min_usd": "100.0000000000",
 		"created_at":              time.Now().Format(time.RFC3339),
@@ -75,26 +80,26 @@ func main() {
 		{
 			"id":                uuid.NewString(),
 			"kind":              "treasury",
-			"evm_address":       "0x88a741c51122f62754f35d4673cba5dac646d05d",
-			"hedera_account_id": "0.0.10413602",
+			"evm_address":       "0x0000000000000000000000000000000000000000",
+			"hedera_account_id": platformAccount,
 			"usdc":              "150.000000",
 			"hbar":              "50.000000",
 			"status":            "ready",
-			"hashscan_url":      "https://hashscan.io/testnet/account/0.0.10413602",
+			"hashscan_url":      fmt.Sprintf("https://hashscan.io/%s/account/%s", cfg.HederaNetwork, platformAccount),
 		},
 		{
 			"id":                uuid.NewString(),
 			"kind":              "agent",
-			"evm_address":       "0x88a741c51122f62754f35d4673cba5dac646d05d",
-			"hedera_account_id": "0.0.10413602",
+			"evm_address":       "0x0000000000000000000000000000000000000000",
+			"hedera_account_id": platformAccount,
 			"usdc":              "25.000000",
 			"hbar":              "10.000000",
 			"status":            "ready",
-			"hashscan_url":      "https://hashscan.io/testnet/account/0.0.10413602",
+			"hashscan_url":      fmt.Sprintf("https://hashscan.io/%s/account/%s", cfg.HederaNetwork, platformAccount),
 		},
 	}
 	memStore.policies[demoProjID] = map[string]any{
-		"spec":            policy.DefaultSpec(),
+		"spec":            policy.DefaultSpecWithPayTo(platformAccount),
 		"version":         1,
 		"privy_policy_id": "privy_pol_mock_market_scout",
 		"pushed_at":       time.Now().Format(time.RFC3339),
@@ -214,7 +219,7 @@ func main() {
 				"name":                    req.Name,
 				"slug":                    req.Slug,
 				"status":                  "active",
-				"hcs_topic_id":            "0.0.10413602",
+				"hcs_topic_id":            platformAccount,
 				"quorum_threshold":        req.Quorum.Threshold,
 				"withdraw_quorum_min_usd": "100.0000000000",
 				"created_at":              time.Now().Format(time.RFC3339),
@@ -228,21 +233,21 @@ func main() {
 					"id":                uuid.NewString(),
 					"kind":              "treasury",
 					"evm_address":       treasuryWallet.Address,
-					"hedera_account_id": "0.0.10413602",
+					"hedera_account_id": platformAccount,
 					"usdc":              "50.000000",
 					"hbar":              "20.000000",
 					"status":            "ready",
-					"hashscan_url":      "https://hashscan.io/testnet/account/0.0.10413602",
+					"hashscan_url":      fmt.Sprintf("https://hashscan.io/%s/account/%s", cfg.HederaNetwork, platformAccount),
 				},
 				{
 					"id":                uuid.NewString(),
 					"kind":              "agent",
 					"evm_address":       agentWallet.Address,
-					"hedera_account_id": "0.0.10413602",
+					"hedera_account_id": platformAccount,
 					"usdc":              "10.000000",
 					"hbar":              "5.000000",
 					"status":            "ready",
-					"hashscan_url":      "https://hashscan.io/testnet/account/0.0.10413602",
+					"hashscan_url":      fmt.Sprintf("https://hashscan.io/%s/account/%s", cfg.HederaNetwork, platformAccount),
 				},
 			}
 
@@ -250,7 +255,7 @@ func main() {
 			memStore.projects[projID] = p
 			memStore.wallets[projID] = wallets
 			memStore.policies[projID] = map[string]any{
-				"spec":            policy.DefaultSpec(),
+				"spec":            policy.DefaultSpecWithPayTo(platformAccount),
 				"version":         1,
 				"privy_policy_id": "privy_pol_" + projID[:8],
 				"pushed_at":       time.Now().Format(time.RFC3339),
@@ -279,7 +284,7 @@ func main() {
 				"balances_usd": "175.00",
 				"spend_24h_usd": "0.00",
 				"cap_usd":      "25.00",
-				"hcs_topic":    "0.0.10413602",
+				"hcs_topic":    platformAccount,
 				"identity":     map[string]any{"scheme": "foundereum.hedera.v1", "agent_id": 1},
 			})
 		})
@@ -295,10 +300,10 @@ func main() {
 		pr.Post("/v1/projects/{id}/faucet", func(w http.ResponseWriter, r *http.Request) {
 			httpx.JSON(w, http.StatusOK, map[string]any{
 				"txs": []string{
-					"0.0.10413602@faucet_usdc_50",
-					"0.0.10413602@faucet_hbar_10",
+					fmt.Sprintf("%s@faucet_usdc_50", platformAccount),
+					fmt.Sprintf("%s@faucet_hbar_10", platformAccount),
 				},
-				"message": "Treasury funded with 50 USDC and 10 HBAR on Hedera testnet",
+				"message": fmt.Sprintf("Treasury funded with 50 USDC and 10 HBAR on %s", cfg.HederaNetwork),
 			})
 		})
 
@@ -399,7 +404,7 @@ func main() {
 						"status":       "succeeded",
 						"estimate_usd": "0.000500",
 						"actual_usd":   "0.000528",
-						"tx_hash":      "0.0.10413602@1757300000.123456789",
+						"tx_hash":      fmt.Sprintf("%s@1757300000.123456789", platformAccount),
 						"latency_ms":   420,
 						"started_at":   time.Now().Add(-5 * time.Minute).Format(time.RFC3339),
 					},
@@ -419,10 +424,10 @@ func main() {
 		})
 
 		pr.Get("/v1/projects/{id}/audit", func(w http.ResponseWriter, r *http.Request) {
-			topicID := "0.0.10413602"
+			topicID := platformAccount
 			httpx.JSON(w, http.StatusOK, map[string]any{
 				"topic_id":     topicID,
-				"hashscan_url": "https://hashscan.io/testnet/topic/" + topicID,
+				"hashscan_url": fmt.Sprintf("https://hashscan.io/%s/topic/%s", cfg.HederaNetwork, topicID),
 				"messages": []map[string]any{
 					{
 						"seq":   101,
@@ -430,8 +435,8 @@ func main() {
 						"tool":  "analyze_pool_health",
 						"amount": "500",
 						"usd":   "0.0005",
-						"payer": "0.0.10413602",
-						"tx_id": "0.0.10413602@1757300000.123456789",
+						"payer": platformAccount,
+						"tx_id": fmt.Sprintf("%s@1757300000.123456789", platformAccount),
 					},
 					{
 						"seq":   102,
@@ -439,8 +444,8 @@ func main() {
 						"tool":  "swap_tokens",
 						"amount": "7500",
 						"usd":   "0.0075",
-						"payer": "0.0.10413602",
-						"tx_id": "0.0.10413602@1757300120.987654321",
+						"payer": platformAccount,
+						"tx_id": fmt.Sprintf("%s@1757300120.987654321", platformAccount),
 					},
 				},
 			})
@@ -486,12 +491,13 @@ func main() {
 
 		pr.Post("/v1/approvals/{id}/approve", func(w http.ResponseWriter, r *http.Request) {
 			id := chi.URLParam(r, "id")
+			resultTxID := fmt.Sprintf("%s@quorum_withdraw_executed", platformAccount)
 			httpx.JSON(w, http.StatusOK, map[string]any{
 				"id":               id,
 				"status":           "executed",
 				"signatures_count": 2,
-				"result_tx_id":     "0.0.10413602@quorum_withdraw_executed",
-				"hashscan_url":     "https://hashscan.io/testnet/transaction/0.0.10413602@quorum_withdraw_executed",
+				"result_tx_id":     resultTxID,
+				"hashscan_url":     fmt.Sprintf("https://hashscan.io/%s/transaction/%s", cfg.HederaNetwork, resultTxID),
 			})
 		})
 

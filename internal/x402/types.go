@@ -25,11 +25,11 @@ type PricingMeta struct {
 }
 
 type Requirement struct {
-	Scheme  string         `json:"scheme"`  // "hedera-exact"
-	Network string         `json:"network"` // "hedera-testnet"
-	Asset   string         `json:"asset"`   // HTS token id "0.0.429274"
+	Scheme  string         `json:"scheme"`  // e.g. "hedera-exact"
+	Network string         `json:"network"` // e.g. "hedera-testnet"
+	Asset   string         `json:"asset"`   // e.g. HTS token id "0.0.429274"
 	Amount  string         `json:"amount"`  // 6 dp base units
-	PayTo   string         `json:"payTo"`   // "0.0.10413602"
+	PayTo   string         `json:"payTo"`   // platform account from config
 	Extra   map[string]any `json:"extra"`   // memo, maxTimeoutSeconds
 }
 
@@ -66,11 +66,11 @@ func EncodePayment(blob *PaymentBlob) (string, error) {
 }
 
 type SettleResult struct {
-	Success    bool            `json:"success"`
-	TxID       string          `json:"tx_id"`
-	Hashscan   string          `json:"hashscan_url"`
-	Amount     decimal.Decimal `json:"amount"`
-	AmountUSD  decimal.Decimal `json:"amount_usd"`
-	Payer      string          `json:"payer"`
-	Asset      string          `json:"asset"`
+	Success   bool            `json:"success"`
+	TxID      string          `json:"tx_id"`
+	Hashscan  string          `json:"hashscan_url"`
+	Amount    decimal.Decimal `json:"amount"`
+	AmountUSD decimal.Decimal `json:"amount_usd"`
+	Payer     string          `json:"payer"`
+	Asset     string          `json:"asset"`
 }

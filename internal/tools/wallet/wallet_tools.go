@@ -96,9 +96,15 @@ func (e *transferTokenExecutor) Execute(ctx context.Context, in tools.Input) (to
 		return tools.Output{}, fmt.Errorf("invalid arguments: %w", err)
 	}
 
-	txID := fmt.Sprintf("0.0.10413602@transfer_%s", args.ToAccount)
+	senderAccount := in.Wallet.HederaAccountID
+	if senderAccount == "" {
+		senderAccount = "0.0.AGENT"
+	}
+
+	txID := fmt.Sprintf("%s@transfer_%s", senderAccount, args.ToAccount)
 	res := map[string]any{
 		"status":       "transferred",
+		"from_account": senderAccount,
 		"to_account":   args.ToAccount,
 		"token":        args.Token,
 		"amount":       args.Amount,

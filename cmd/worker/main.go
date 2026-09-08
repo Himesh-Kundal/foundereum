@@ -49,15 +49,24 @@ func main() {
 
 	// Task: hcs_audit
 	mux.HandleFunc("hcs_audit", func(ctx context.Context, t *asynq.Task) error {
-		var msg hcs.AuditMessage
-		if err := json.Unmarshal(t.Payload(), &msg); err != nil {
+		var payload struct {
+			TopicID string           `json:"topic_id"`
+			Message hcs.AuditMessage `json:"message"`
+		}
+		if err := json.Unmarshal(t.Payload(), &payload); err != nil {
 			return err
 		}
-		seq, ts, err := hcsPub.Publish(ctx, "0.0.10413602", msg)
+
+		topicID := payload.TopicID
+		if topicID == "" {
+			topicID = cfg.HederaOperatorAccount
+		}
+
+		seq, ts, err := hcsPub.Publish(ctx, topicID, payload.Message)
 		if err != nil {
 			return fmt.Errorf("publish hcs audit: %w", err)
 		}
-		logger.Info("hcs audit message published", "seq", seq, "ts", ts, "call", msg.CallID)
+		logger.Info("hcs audit message published", "seq", seq, "ts", ts, "call", payload.Message.CallID)
 		return nil
 	})
 

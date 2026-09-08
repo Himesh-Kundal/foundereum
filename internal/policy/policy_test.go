@@ -7,22 +7,23 @@ import (
 )
 
 func TestPolicyPreCheck(t *testing.T) {
-	spec := DefaultSpec()
+	spec := DefaultSpecWithPayTo("0.0.TEST_PLATFORM")
 
 	// 1. Valid destination
-	err := PreCheckPayment(nil, "0.0.10413602", decimal.RequireFromString("0.5"), decimal.Zero)
+	err := PreCheckPayment(nil, "0.0.TEST_PLATFORM", decimal.RequireFromString("0.5"), decimal.Zero)
 	if err != nil {
 		t.Fatalf("expected valid payment, got error: %v", err)
 	}
 
 	// 2. Disallowed destination
-	err = PreCheckPayment(nil, "0.0.999999", decimal.RequireFromString("0.5"), decimal.Zero)
+	rawSpec := []byte(`{"payment":{"pay_to":["0.0.TEST_PLATFORM"],"max_usd_per_call":"1"}}`)
+	err = PreCheckPayment(rawSpec, "0.0.999999", decimal.RequireFromString("0.5"), decimal.Zero)
 	if err == nil {
 		t.Fatalf("expected error for disallowed destination, got nil")
 	}
 
 	// 3. Per-call cap exceeded
-	err = PreCheckPayment(nil, "0.0.10413602", decimal.RequireFromString("2.0"), decimal.Zero)
+	err = PreCheckPayment(rawSpec, "0.0.TEST_PLATFORM", decimal.RequireFromString("2.0"), decimal.Zero)
 	if err == nil {
 		t.Fatalf("expected error for exceeding per-call cap, got nil")
 	}

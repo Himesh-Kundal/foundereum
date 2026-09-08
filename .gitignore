@@ -1,30 +1,50 @@
+# Environment & Secrets
 .env
+.env.*
+!.env.example
+*.pem
+*.key
 
-# Binaries
-bin/
+# Root & Subproject Binaries
+/bin/
+bin/api
+bin/gateway
+bin/mcp
+bin/worker
+
+# Subproject Output & Build artifacts
+/dist/
 dist/
+/build/
 build/
+web/dist/
 
 # Dependencies
 node_modules/
+web/node_modules/
 vendor/
 
-# Go
+# Go artifacts
 *.exe
 *.test
 *.out
+*.prof
 
 # Foundry & Contracts
 contracts/out/
 contracts/cache/
 contracts/broadcast/
 
-# IDE & OS
+# IDE, OS, Editor files
 .DS_Store
+Thumbs.db
 .idea/
 .vscode/
 *.swp
 *.swo
+*~
 
-# Docker / volume
+# Persistent Database & Container Volumes
 pgdata/
+data/
+*.log

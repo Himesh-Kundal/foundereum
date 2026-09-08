@@ -1,0 +1,13 @@
+{
+  "name": "foundereum-mcp",
+  "version": "1.0.0",
+  "description": "Stdio to Streamable-HTTP bridge for Foundereum x402-gated MCP tools",
+  "main": "bin/index.js",
+  "bin": {
+    "foundereum-mcp": "./bin/index.js"
+  },
+  "keywords": ["mcp", "modelcontextprotocol", "hedera", "x402", "foundereum"],
+  "author": "Foundereum",
+  "license": "BUSL-1.1",
+  "type": "module"
+}

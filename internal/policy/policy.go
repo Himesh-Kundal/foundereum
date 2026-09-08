@@ -19,7 +19,7 @@ var (
 
 type Spec struct {
 	Velocity struct {
-		MaxUSDPer24h string `json:"max_usd_per_24h"`
+		MaxUSDPer24h  string `json:"max_usd_per_24h"`
 		MaxUSDPerCall string `json:"max_usd_per_call"`
 	} `json:"velocity"`
 	ContractAllowlist []string `json:"contract_allowlist"`
@@ -33,7 +33,7 @@ type Spec struct {
 	} `json:"raw_sign"`
 }
 
-func DefaultSpec() Spec {
+func DefaultSpecWithPayTo(platformAccount string) Spec {
 	var s Spec
 	s.Velocity.MaxUSDPer24h = "25"
 	s.Velocity.MaxUSDPerCall = "5"
@@ -46,17 +46,29 @@ func DefaultSpec() Spec {
 		"0x38ed1739", // swapExactTokensForTokens
 		"0x18cbafe5", // swapExactTokensForETH
 	}
-	s.Payment.PayTo = []string{"0.0.10413602"}
+	if platformAccount != "" {
+		s.Payment.PayTo = []string{platformAccount}
+	} else {
+		s.Payment.PayTo = []string{"0.0.PLATFORM"}
+	}
 	s.Payment.MaxUSDPerCall = "1"
 	s.RawSign.AllowedPurposes = []string{"hts_transfer_to_platform", "token_associate"}
 	return s
 }
 
+func DefaultSpec() Spec {
+	return DefaultSpecWithPayTo("0.0.PLATFORM")
+}
+
 // PreCheckPayment checks if an x402 payment satisfies the project policy.
 func PreCheckPayment(rawSpec []byte, payTo string, amountUSD decimal.Decimal, spend24h decimal.Decimal) error {
 	var spec Spec
-	if err := json.Unmarshal(rawSpec, &spec); err != nil {
-		spec = DefaultSpec()
+	if len(rawSpec) > 0 {
+		if err := json.Unmarshal(rawSpec, &spec); err != nil {
+			spec = DefaultSpec()
+		}
+	} else {
+		spec = DefaultSpecWithPayTo(payTo)
 	}
 
 	// 1. Destination check
@@ -93,7 +105,11 @@ func PreCheckPayment(rawSpec []byte, payTo string, amountUSD decimal.Decimal, sp
 // PreCheckEVM validates EVM call parameters before requesting a signature.
 func PreCheckEVM(rawSpec []byte, to string, selector string, valueUSD decimal.Decimal, spend24h decimal.Decimal) error {
 	var spec Spec
-	if err := json.Unmarshal(rawSpec, &spec); err != nil {
+	if len(rawSpec) > 0 {
+		if err := json.Unmarshal(rawSpec, &spec); err != nil {
+			spec = DefaultSpec()
+		}
+	} else {
 		spec = DefaultSpec()
 	}
 

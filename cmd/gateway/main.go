@@ -51,7 +51,7 @@ func main() {
 
 	privyClient := privy.NewClient(cfg)
 	privySigner := wallet.NewPrivySigner(privyClient)
-	var facilitator x402.Facilitator = x402.NewMockFacilitator()
+	var facilitator x402.Facilitator = x402.NewMockFacilitator(cfg.HederaPlatformAccount)
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -95,7 +95,7 @@ func main() {
 		blob := x402.PaymentBlob{
 			X402Version: 1,
 			Scheme:      "hedera-exact",
-			Network:     "hedera-testnet",
+			Network:     cfg.HederaNetwork,
 			Nonce:       req.Nonce,
 			Payload: x402.PaymentPayload{
 				Transaction: hex.EncodeToString(sig),
@@ -141,7 +141,7 @@ func main() {
 				ProjectID: uuid.New(),
 				Wallet: wallet.Ref{
 					HederaAccountID: cfg.HederaPlatformAccount,
-					EVMAddress:      "0x88a741c51122f62754f35d4673cba5dac646d05d",
+					EVMAddress:      "0x0000000000000000000000000000000000000000",
 				},
 				Args: rawArgs,
 			}
@@ -176,7 +176,7 @@ func main() {
 				Accepts: []x402.Requirement{
 					{
 						Scheme:  "hedera-exact",
-						Network: "hedera-testnet",
+						Network: cfg.HederaNetwork,
 						Asset:   cfg.HederaUSDCTokenID,
 						Amount:  estBaseUnits.String(),
 						PayTo:   cfg.HederaPlatformAccount,
@@ -224,7 +224,7 @@ func main() {
 			ProjectID: uuid.New(),
 			Wallet: wallet.Ref{
 				HederaAccountID: cfg.HederaPlatformAccount,
-				EVMAddress:      "0x88a741c51122f62754f35d4673cba5dac646d05d",
+				EVMAddress:      "0x0000000000000000000000000000000000000000",
 			},
 			Args:       rawArgs,
 			Settlement: settleRes,
