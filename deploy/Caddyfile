@@ -1,0 +1,18 @@
+# Foundereum Production Caddy Reverse Proxy Configuration
+# Domain: foundereum.org
+
+app.foundereum.org {
+    reverse_proxy web:80
+}
+
+api.foundereum.org {
+    reverse_proxy api:8080
+}
+
+gw.foundereum.org {
+    reverse_proxy gateway:8081
+}
+
+mcp.foundereum.org {
+    reverse_proxy mcp:8082
+}

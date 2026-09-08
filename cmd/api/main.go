@@ -148,14 +148,14 @@ func main() {
 	r.Post("/v1/auth/dev", func(w http.ResponseWriter, r *http.Request) {
 		userID := uuid.New()
 		orgID := uuid.New()
-		token, err := authSvc.IssueToken(userID, orgID, "operator@foundereum.xyz", "owner")
+		token, err := authSvc.IssueToken(userID, orgID, "operator@foundereum.org", "owner")
 		if err != nil {
 			httpx.Err(w, http.StatusInternalServerError, "AUTH_FAILED", err.Error())
 			return
 		}
 		httpx.JSON(w, http.StatusOK, map[string]any{
 			"jwt":  token,
-			"user": map[string]any{"id": userID, "email": "operator@foundereum.xyz"},
+			"user": map[string]any{"id": userID, "email": "operator@foundereum.org"},
 			"org":  map[string]any{"id": orgID, "name": "Acme Ventures"},
 			"role": "owner",
 		})
@@ -164,10 +164,10 @@ func main() {
 	r.Post("/v1/auth/session", func(w http.ResponseWriter, r *http.Request) {
 		userID := uuid.New()
 		orgID := uuid.New()
-		token, _ := authSvc.IssueToken(userID, orgID, "operator@foundereum.xyz", "owner")
+		token, _ := authSvc.IssueToken(userID, orgID, "operator@foundereum.org", "owner")
 		httpx.JSON(w, http.StatusOK, map[string]any{
 			"jwt":  token,
-			"user": map[string]any{"id": userID, "email": "operator@foundereum.xyz"},
+			"user": map[string]any{"id": userID, "email": "operator@foundereum.org"},
 			"org":  map[string]any{"id": orgID, "name": "Acme Ventures"},
 			"role": "owner",
 		})
@@ -475,10 +475,10 @@ func main() {
 				"payload":    req,
 				"threshold":  2,
 				"signatures": []map[string]any{
-					{"email": "operator@foundereum.xyz", "at": time.Now().Format(time.RFC3339)},
+					{"email": "operator@foundereum.org", "at": time.Now().Format(time.RFC3339)},
 				},
 				"status":     "pending",
-				"created_by": "operator@foundereum.xyz",
+				"created_by": "operator@foundereum.org",
 				"expires_at": time.Now().Add(24 * time.Hour).Format(time.RFC3339),
 			}
 

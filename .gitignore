@@ -1,9 +1,11 @@
-# Environment & Secrets
+# Environment & Secrets (NEVER COMMIT)
 .env
 .env.*
 !.env.example
+!.env.production.example
 *.pem
 *.key
+*.secret
 
 # Root & Subproject Binaries
 /bin/
@@ -44,7 +46,10 @@ Thumbs.db
 *.swo
 *~
 
-# Persistent Database & Container Volumes
+# Persistent Database, Cache & Container Volumes
 pgdata/
+redisdata/
+caddy_data/
+caddy_config/
 data/
 *.log

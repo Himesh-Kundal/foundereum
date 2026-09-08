@@ -3,7 +3,7 @@
 all: contracts test build
 
 dev:
-	docker compose -f deploy/docker-compose.yml up --build
+	docker compose up --build
 
 migrate:
 	goose -dir internal/db/migrations postgres "$(DATABASE_URL)" up

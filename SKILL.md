@@ -17,7 +17,7 @@ Add Foundereum to your MCP client configuration (e.g. `claude_desktop_config.jso
   "mcpServers": {
     "foundereum": {
       "command": "npx",
-      "args": ["-y", "foundereum-mcp", "--url", "https://mcp.foundereum.xyz/mcp"],
+      "args": ["-y", "foundereum-mcp", "--url", "https://mcp.foundereum.org/mcp"],
       "env": {
         "FOUNDEREUM_API_KEY": "fnd_sk_live_..."
       }

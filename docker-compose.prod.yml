@@ -1,0 +1,159 @@
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+      - api
+      - gateway
+      - mcp
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-fnd}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-foundereum}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-fnd}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+
+  api:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.app
+      args:
+        CMD: api
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      ENV: production
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      PORT_API: 8080
+      JWT_SECRET: ${JWT_SECRET}
+      AUTH_DEV_BYPASS: ${AUTH_DEV_BYPASS:-false}
+      QUORUM_MODE: ${QUORUM_MODE:-privy}
+      PRIVY_APP_ID: ${PRIVY_APP_ID}
+      PRIVY_APP_SECRET: ${PRIVY_APP_SECRET}
+      HEDERA_NETWORK: ${HEDERA_NETWORK:-testnet}
+      HEDERA_FAUCET_ACCOUNT: ${HEDERA_FAUCET_ACCOUNT}
+      HEDERA_FAUCET_KEY: ${HEDERA_FAUCET_KEY}
+      HEDERA_OPERATOR_ACCOUNT: ${HEDERA_OPERATOR_ACCOUNT}
+      HEDERA_OPERATOR_KEY: ${HEDERA_OPERATOR_KEY}
+      HEDERA_PLATFORM_ACCOUNT: ${HEDERA_PLATFORM_ACCOUNT}
+      HEDERA_USDC_TOKEN_ID: ${HEDERA_USDC_TOKEN_ID:-0.0.429274}
+      HEDERA_JSON_RPC: ${HEDERA_JSON_RPC:-https://testnet.hashio.io/api}
+      HEDERA_EVM_CHAIN_ID: ${HEDERA_EVM_CHAIN_ID:-296}
+      GRAPH_API_KEY: ${GRAPH_API_KEY}
+      SUBGRAPH_MCP_URL: http://subgraph-mcp:7000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  gateway:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.app
+      args:
+        CMD: gateway
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      ENV: production
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      PORT_GATEWAY: 8081
+      PRIVY_APP_ID: ${PRIVY_APP_ID}
+      PRIVY_APP_SECRET: ${PRIVY_APP_SECRET}
+      PRIVY_AUTH_KEY: ${PRIVY_AUTH_KEY}
+      WALLET_SIGNER: ${WALLET_SIGNER:-privy}
+      FACILITATOR_MODE: ${FACILITATOR_MODE:-blocky}
+      BLOCKY402_URL: ${BLOCKY402_URL:-https://facilitator.blocky402.com}
+      HEDERA_NETWORK: ${HEDERA_NETWORK:-testnet}
+      HEDERA_PLATFORM_ACCOUNT: ${HEDERA_PLATFORM_ACCOUNT}
+      HEDERA_FEEPAYER_ACCOUNT: ${HEDERA_FEEPAYER_ACCOUNT}
+      HEDERA_FEEPAYER_KEY: ${HEDERA_FEEPAYER_KEY}
+      HEDERA_USDC_TOKEN_ID: ${HEDERA_USDC_TOKEN_ID:-0.0.429274}
+      HEDERA_JSON_RPC: ${HEDERA_JSON_RPC:-https://testnet.hashio.io/api}
+      HEDERA_EVM_CHAIN_ID: ${HEDERA_EVM_CHAIN_ID:-296}
+      GRAPH_API_KEY: ${GRAPH_API_KEY}
+      SUBGRAPH_MCP_URL: http://subgraph-mcp:7000
+      MOCK_CHAINS: ${MOCK_CHAINS:-false}
+    depends_on:
+      - api
+      - subgraph-mcp
+
+  mcp:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.app
+      args:
+        CMD: mcp
+    restart: unless-stopped
+    environment:
+      PORT_MCP: 8082
+      PORT_GATEWAY: 8081
+    depends_on:
+      - gateway
+
+  worker:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.app
+      args:
+        CMD: worker
+    restart: unless-stopped
+    environment:
+      REDIS_URL: ${REDIS_URL}
+      ENV: production
+      HEDERA_OPERATOR_ACCOUNT: ${HEDERA_OPERATOR_ACCOUNT}
+      HEDERA_OPERATOR_KEY: ${HEDERA_OPERATOR_KEY}
+      HEDERA_NETWORK: ${HEDERA_NETWORK:-testnet}
+      MOCK_CHAINS: ${MOCK_CHAINS:-false}
+    depends_on:
+      - redis
+
+  subgraph-mcp:
+    build:
+      context: ./sidecars/subgraph-mcp
+    restart: unless-stopped
+    environment:
+      GRAPH_API_KEY: ${GRAPH_API_KEY}
+      PORT: 7000
+
+  web:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.web
+    restart: unless-stopped
+    environment:
+      VITE_API_URL: https://api.foundereum.org
+      VITE_PRIVY_APP_ID: ${PRIVY_APP_ID}
+
+volumes:
+  pgdata:
+  redisdata:
+  caddy_data:
+  caddy_config:

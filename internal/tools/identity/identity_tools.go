@@ -40,7 +40,7 @@ func (e *verifyAgentExecutor) Execute(ctx context.Context, in tools.Input) (tool
 	res := map[string]any{
 		"registered":       true,
 		"agent_id":         1,
-		"agent_uri":        fmt.Sprintf("https://api.foundereum.xyz/v1/agents/%s.json", args.WalletAddress),
+		"agent_uri":        fmt.Sprintf("https://api.foundereum.org/v1/agents/%s.json", args.WalletAddress),
 		"owner":            args.WalletAddress,
 		"registry_address": "0x0000000000000000000000000000000000000000",
 		"scheme":           "foundereum.hedera.v1",
