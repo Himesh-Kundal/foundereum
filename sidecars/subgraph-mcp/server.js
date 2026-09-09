@@ -5,25 +5,28 @@ const GRAPH_API_KEY = process.env.GRAPH_API_KEY || '';
 
 const MOCK_SUBGRAPHS = [
   {
-    display_name: 'Messari Uniswap v3 Base',
-    deployment_id: 'QmZb8x9y7zMessariUniswapV3Base',
-    network: 'base',
+    display_name: 'Uniswap v3 Ethereum',
+    deployment_id: 'QmTZ8ejXJxRo7vDBS4uwqBeGoxLSWbhaA7oXa1RvxunLy7',
+    subgraph_id: '5zvR82QoaXYFyDEKLZ9t6v9adgnptxYpKpSbxtgVENFV',
+    network: 'mainnet',
     protocol: 'uniswap-v3',
-    schema: 'type LiquidityPool { id: ID!, name: String!, totalValueLockedUSD: BigDecimal!, cumulativeVolumeUSD: BigDecimal! }'
+    schema: 'type Pool { id: ID!, token0: Token!, token1: Token!, totalValueLockedUSD: BigDecimal!, volumeUSD: BigDecimal! }'
   },
   {
-    display_name: 'Messari Aerodrome Base',
-    deployment_id: 'QmAeroDromeBaseMessariDeployment',
-    network: 'base',
-    protocol: 'aerodrome',
-    schema: 'type LiquidityPool { id: ID!, name: String!, totalValueLockedUSD: BigDecimal!, cumulativeVolumeUSD: BigDecimal! }'
+    display_name: 'Uniswap v4 Protocol',
+    deployment_id: 'Qmbsc6XQWbiv4DfLVfaNciScqYLyDWUYjWzrFBbzzmRsMB',
+    subgraph_id: 'Gqm2b5J85n1bhCyDMpGbtbVn4935EvvdyHdHrx3dibyj',
+    network: 'mainnet',
+    protocol: 'uniswap-v4',
+    schema: 'type Pool { id: ID!, poolManager: PoolManager!, currency0: Bytes!, currency1: Bytes! }'
   },
   {
-    display_name: 'Messari Aave v3 Arbitrum',
-    deployment_id: 'QmAaveV3ArbitrumMessariDeployment',
+    display_name: 'The Graph Network Arbitrum',
+    deployment_id: 'DZz4kDTdmzWLWsV373w2bSmoar3umKKH9y82SUKr5qmp',
+    subgraph_id: 'DZz4kDTdmzWLWsV373w2bSmoar3umKKH9y82SUKr5qmp',
     network: 'arbitrum',
-    protocol: 'aave-v3',
-    schema: 'type Market { id: ID!, name: String!, totalValueLockedUSD: BigDecimal! }'
+    protocol: 'the-graph-network',
+    schema: 'type Subgraph { id: ID!, currentSignalledTokens: BigInt!, currentVersion: SubgraphVersion }'
   }
 ];
 
@@ -41,7 +44,7 @@ async function handleToolsCall(name, args) {
   }
 
   if (name === 'get_schema_by_deployment_id') {
-    const match = MOCK_SUBGRAPHS.find(s => s.deployment_id === args.deployment_id);
+    const match = MOCK_SUBGRAPHS.find(s => s.deployment_id === args.deployment_id || s.subgraph_id === args.deployment_id);
     return {
       schema: match ? match.schema : 'type Query { ping: String }'
     };
@@ -53,7 +56,10 @@ async function handleToolsCall(name, args) {
 
     if (GRAPH_API_KEY && deploymentId && query) {
       try {
-        const url = `https://gateway.thegraph.com/api/${GRAPH_API_KEY}/deployments/id/${deploymentId}`;
+        const isDeployment = deploymentId.startsWith('Qm');
+        const url = isDeployment
+          ? `https://gateway.thegraph.com/api/${GRAPH_API_KEY}/deployments/id/${deploymentId}`
+          : `https://gateway.thegraph.com/api/${GRAPH_API_KEY}/subgraphs/id/${deploymentId}`;
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 8000);
 
