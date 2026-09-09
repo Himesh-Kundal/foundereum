@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/foundereum/foundereum/internal/config"
@@ -34,7 +35,11 @@ func NewPublisher(cfg *config.Config) *Publisher {
 	if !cfg.MockChains && cfg.HederaOperatorAccount != "" && cfg.HederaOperatorKey != "" {
 		accountID, err := hedera.AccountIDFromString(cfg.HederaOperatorAccount)
 		if err == nil {
-			privKey, err := hedera.PrivateKeyFromString(cfg.HederaOperatorKey)
+			cleanKey := strings.TrimPrefix(cfg.HederaOperatorKey, "0x")
+			privKey, err := hedera.PrivateKeyFromStringECDSA(cleanKey)
+			if err != nil {
+				privKey, err = hedera.PrivateKeyFromString(cleanKey)
+			}
 			if err == nil {
 				client := hedera.ClientForTestnet()
 				client.SetOperator(accountID, privKey)

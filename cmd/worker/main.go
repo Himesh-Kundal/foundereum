@@ -57,7 +57,11 @@ func main() {
 	if !cfg.MockChains && cfg.HederaOperatorAccount != "" && cfg.HederaOperatorKey != "" {
 		accountID, err := hedera.AccountIDFromString(cfg.HederaOperatorAccount)
 		if err == nil {
-			privKey, err := hedera.PrivateKeyFromString(cfg.HederaOperatorKey)
+			cleanKey := strings.TrimPrefix(cfg.HederaOperatorKey, "0x")
+			privKey, err := hedera.PrivateKeyFromStringECDSA(cleanKey)
+			if err != nil {
+				privKey, err = hedera.PrivateKeyFromString(cleanKey)
+			}
 			if err == nil {
 				client := hedera.ClientForTestnet()
 				client.SetOperator(accountID, privKey)
@@ -142,7 +146,7 @@ func main() {
 
 		topicID := payload.TopicID
 		if topicID == "" {
-			topicID = cfg.HederaOperatorAccount
+			topicID = cfg.HederaAuditTopicID
 		}
 
 		seq, ts, err := hcsPub.Publish(ctx, topicID, payload.Message)

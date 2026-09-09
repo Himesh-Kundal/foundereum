@@ -37,6 +37,7 @@ type Config struct {
 	HederaFeePayerAccount string `env:"HEDERA_FEEPAYER_ACCOUNT"`
 	HederaFeePayerKey     string `env:"HEDERA_FEEPAYER_KEY"`
 	HederaUSDCTokenID     string `env:"HEDERA_USDC_TOKEN_ID" envDefault:"0.0.429274"`
+	HederaAuditTopicID    string `env:"HEDERA_AUDIT_TOPIC_ID" envDefault:"0.0.10442234"`
 	HederaJSONRPC         string `env:"HEDERA_JSON_RPC" envDefault:"https://testnet.hashio.io/api"`
 	HederaEVMChainID      int64  `env:"HEDERA_EVM_CHAIN_ID" envDefault:"296"`
 

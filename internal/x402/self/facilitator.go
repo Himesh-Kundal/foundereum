@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/foundereum/foundereum/internal/config"
@@ -30,9 +31,10 @@ func New(cfg *config.Config) *SelfFacilitator {
 		client := hedera.ClientForTestnet()
 		payerID, err := hedera.AccountIDFromString(cfg.HederaFeePayerAccount)
 		if err == nil {
-			privKey, err := hedera.PrivateKeyFromStringECDSA(cfg.HederaFeePayerKey)
+			cleanKey := strings.TrimPrefix(cfg.HederaFeePayerKey, "0x")
+			privKey, err := hedera.PrivateKeyFromStringECDSA(cleanKey)
 			if err != nil {
-				privKey, err = hedera.PrivateKeyFromString(cfg.HederaFeePayerKey)
+				privKey, err = hedera.PrivateKeyFromString(cleanKey)
 			}
 			if err == nil {
 				client.SetOperator(payerID, privKey)

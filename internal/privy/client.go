@@ -101,9 +101,9 @@ func (c *Client) RawSign(ctx context.Context, walletID string, hash32 []byte) ([
 		return sig[:64], nil
 	}
 
-	// Privy API raw_sign call
+	// Privy API secp256k1_sign call
 	payload := map[string]any{
-		"method": "raw_sign",
+		"method": "secp256k1_sign",
 		"params": map[string]any{
 			"hash": "0x" + hex.EncodeToString(hash32),
 		},
@@ -168,11 +168,10 @@ func (c *Client) PushPolicy(ctx context.Context, name string, rules []any) (stri
 	}
 
 	payload := map[string]any{
-		"version":        "1.0",
-		"name":           name,
-		"chain_type":     "ethereum",
-		"rules":          rules,
-		"default_action": "DENY",
+		"version":    "1.0",
+		"name":       name,
+		"chain_type": "ethereum",
+		"rules":      rules,
 	}
 	data, _ := json.Marshal(payload)
 	req, err := http.NewRequestWithContext(ctx, "POST", "https://api.privy.io/v1/policies", bytes.NewReader(data))
