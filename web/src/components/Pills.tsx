@@ -1,36 +1,30 @@
-import React from "react";
+export interface PricePillProps {
+  price: string;
+}
 
-export const PricePill: React.FC<{ price: string; className?: string }> = ({
-  price,
-  className = "",
-}) => {
+export const PricePill = ({ price }: PricePillProps) => {
   return (
-    <span
-      className={`inline-block border border-[#16181D] px-2.5 py-0.5 rounded-full font-mono text-xs text-[#16181D] bg-[#EDE9DE] font-medium ${className}`}
-    >
+    <span className="px-3 py-0.5 rounded-full border border-ink font-mono text-sm text-ink">
       {price}
     </span>
   );
 };
 
-export const StatusPill: React.FC<{
-  status: "settled" | "pending" | "rejected" | "failed" | "active" | string;
-  className?: string;
-}> = ({ status, className = "" }) => {
-  let color = "border-[#16181D] text-[#16181D]";
+export interface StatusPillProps {
+  status: string;
+}
 
-  if (status === "settled" || status === "active" || status === "ok") {
-    color = "border-[#1E7F4F] text-[#1E7F4F]";
-  } else if (status === "rejected" || status === "failed" || status === "err") {
-    color = "border-[#C6402E] text-[#C6402E]";
-  } else if (status === "pending" || status === "settling") {
-    color = "border-[#F05423] text-[#F05423]";
-  }
+export const StatusPill = ({ status }: StatusPillProps) => {
+  const getBorderColor = () => {
+    const s = status.toLowerCase();
+    if (s === 'settled' || s === 'matched') return 'border-ok text-ok';
+    if (s === 'pending') return 'border-forge text-forge';
+    if (s === 'rejected' || s === 'failed' || s === 'unmatched') return 'border-err text-err';
+    return 'border-ink text-ink';
+  };
 
   return (
-    <span
-      className={`inline-block border ${color} px-2 py-0.5 rounded-full font-mono text-[11px] lowercase tracking-wide font-semibold ${className}`}
-    >
+    <span className={`px-2 py-0.5 border font-mono text-xs lowercase ${getBorderColor()}`}>
       {status}
     </span>
   );

@@ -1,51 +1,43 @@
-import React from "react";
+import type { ReactNode } from 'react';
 
-interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  children: React.ReactNode;
+export interface PillButtonProps {
+  children: ReactNode;
+  onClick?: () => void;
+  href?: string;
   className?: string;
 }
 
-export const PillButton: React.FC<ButtonProps> = ({
-  children,
-  className = "",
-  ...props
-}) => {
+export const PillButton = ({ children, onClick, href, className = '' }: PillButtonProps) => {
+  const Component = href ? 'a' : 'button';
   return (
-    <button
-      {...props}
-      className={`px-6 py-2.5 rounded-full border border-[#16181D] bg-transparent text-[#16181D] font-mono text-xs uppercase tracking-wider font-semibold hover:bg-[#16181D] hover:text-[#F4F1E9] transition-all cursor-pointer ${className}`}
+    <Component
+      onClick={onClick}
+      href={href}
+      className={`px-4 py-2 uppercase font-mono text-sm border border-ink rounded-full bg-transparent text-ink hover:bg-ink hover:text-paper transition-colors ${className}`}
     >
       {children}
-    </button>
+    </Component>
   );
 };
 
-interface BlockButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  children: React.ReactNode;
-  variant?: "forge" | "danger" | "ghost" | "dark";
+export interface BlockButtonProps {
+  children: ReactNode;
+  onClick?: () => void;
+  variant?: 'primary' | 'danger';
   className?: string;
+  disabled?: boolean;
 }
 
-export const BlockButton: React.FC<BlockButtonProps> = ({
-  children,
-  variant = "forge",
-  className = "",
-  ...props
-}) => {
-  let styleClasses = "bg-[#F05423] text-[#16181D] hover:bg-[#d9481b] border-[#16181D]";
-
-  if (variant === "danger") {
-    styleClasses = "bg-[#C6402E] text-white hover:bg-[#a83324] border-[#16181D]";
-  } else if (variant === "ghost") {
-    styleClasses = "bg-transparent text-[#16181D] hover:bg-[#EDE9DE] border-[#16181D]";
-  } else if (variant === "dark") {
-    styleClasses = "bg-[#16181D] text-[#F4F1E9] hover:bg-[#2a2e37] border-[#16181D]";
-  }
-
+export const BlockButton = ({ children, onClick, variant = 'primary', className = '', disabled = false }: BlockButtonProps) => {
   return (
     <button
-      {...props}
-      className={`px-4 py-2 border font-mono text-xs uppercase tracking-wider font-bold transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${styleClasses} ${className}`}
+      onClick={onClick}
+      disabled={disabled}
+      className={`px-6 py-3 uppercase font-mono text-sm rounded-none border border-ink hover:opacity-90 transition-opacity ${
+        disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+      } ${
+        variant === 'danger' ? 'bg-err text-paper' : 'bg-forge text-ink'
+      } ${className}`}
     >
       {children}
     </button>

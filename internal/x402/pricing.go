@@ -41,7 +41,7 @@ func Estimate(rule Rule, args json.RawMessage) decimal.Decimal {
 	}
 
 	// Enforce floor of $0.000001 (1 unit of USDC 6dp)
-	floor := decimal.NewFromFloat(0.000001)
+	floor := decimal.RequireFromString("0.000001")
 	if cost.LessThan(floor) && !cost.IsZero() {
 		cost = floor
 	}
@@ -74,7 +74,7 @@ func Actual(rule Rule, bytesReturned int, args json.RawMessage) decimal.Decimal 
 		cost = cost.Add(rule.PerKBUSD.Mul(kb))
 	}
 
-	floor := decimal.NewFromFloat(0.000001)
+	floor := decimal.RequireFromString("0.000001")
 	if cost.LessThan(floor) && !cost.IsZero() {
 		cost = floor
 	}

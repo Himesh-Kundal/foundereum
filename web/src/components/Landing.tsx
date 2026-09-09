@@ -1,344 +1,339 @@
-import React from "react";
-import { PillButton, BlockButton } from "./Buttons";
-import { PricePill } from "./Pills";
-import { TerminalBlock } from "./TerminalBlock";
+import type { ServiceTool } from '../api';
 
-interface LandingProps {
-  onLaunchApp: () => void;
-  onNavigateServices: () => void;
+export interface LandingProps {
+  onLaunch?: () => void;
+  onCreateProject?: () => void;
+  onServices?: () => void;
+  onDocs?: () => void;
+  onSignIn?: () => void;
+  onSignOut?: () => void;
+  isAuthenticated?: boolean;
+  services?: ServiceTool[];
 }
 
-export const Landing: React.FC<LandingProps> = ({ onLaunchApp, onNavigateServices }) => {
+export function Landing({ 
+  onLaunch, 
+  onCreateProject, 
+  onServices, 
+  onDocs, 
+  onSignIn,
+  onSignOut,
+  isAuthenticated = false,
+  services = []
+}: LandingProps = {}) {
+  const handleLaunch = () => {
+    if (onLaunch) onLaunch();
+    else window.location.hash = '#app';
+  };
+
+  const handleCreateProject = () => {
+    if (onCreateProject) onCreateProject();
+    else if (onLaunch) onLaunch();
+    else window.location.hash = '#app';
+  };
+
+  const handleServices = (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (onServices) onServices();
+    else window.location.hash = '#services';
+  };
+
+  const handleDocs = (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (onDocs) onDocs();
+    else window.location.hash = '#docs';
+  };
+
+  const handleSignIn = (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (onSignIn) onSignIn();
+    else window.location.hash = '#login';
+  };
+
   return (
-    <div className="min-h-screen bg-[#F4F1E9] text-[#16181D] font-mono select-none">
-      {/* Top Navigation Bar */}
-      <header className="border-b border-[#16181D] px-4 sm:px-8 py-3 flex items-center justify-between bg-[#F4F1E9] sticky top-0 z-50">
-        <div className="flex items-center gap-6 text-xs tracking-wider">
-          <a
-            href="https://github.com/Himesh-Kundal/foundereum/tree/main/docs"
-            target="_blank"
-            rel="noreferrer"
-            className="hover:text-[#F05423] transition"
+    <div className="bg-paper text-ink min-h-screen font-mono selection:bg-forge selection:text-paper">
+      <style>{`
+        @keyframes marquee {
+          0% { transform: translateX(0); }
+          100% { transform: translateX(-50%); }
+        }
+        .animate-marquee {
+          animation: marquee 30s linear infinite;
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .animate-marquee {
+            animation: none;
+          }
+        }
+        .bg-dotted {
+          background-image: radial-gradient(circle, #16181D 1px, transparent 1px);
+          background-size: 24px 24px;
+        }
+        .corner-brackets {
+          position: relative;
+        }
+        .corner-brackets::before,
+        .corner-brackets::after {
+          content: "";
+          position: absolute;
+          width: 8px;
+          height: 8px;
+          border-color: #16181D;
+          border-style: solid;
+        }
+        .corner-brackets::before {
+          top: -1px;
+          left: -1px;
+          border-width: 1px 0 0 1px;
+        }
+        .corner-brackets::after {
+          bottom: -1px;
+          right: -1px;
+          border-width: 0 1px 1px 0;
+        }
+      `}</style>
+      
+      {/* Nav (Doc 11 §4.1: 3 zones like Turnable) */}
+      <nav className="border-b border-ink flex items-center justify-between px-4 py-3 text-sm border-t border-t-ink">
+        <div className="flex gap-6 w-1/3">
+          <a href="#docs" onClick={handleDocs} className="uppercase hover:text-forge transition-colors cursor-pointer">Docs</a>
+          <a href="#services" onClick={handleServices} className="uppercase hover:text-forge transition-colors cursor-pointer">Services</a>
+        </div>
+        <div className="flex items-center justify-center gap-3 w-1/3 font-medium">
+          <img src="/logo.png" alt="Foundereum" className="w-8 h-8" />
+          <span className="font-bold">Foundereum</span>
+        </div>
+        <div className="flex gap-4 sm:gap-6 items-center justify-end w-1/3">
+          <a href="https://github.com/Himesh-Kundal/foundereum" target="_blank" rel="noreferrer" className="uppercase hover:text-forge transition-colors hidden sm:inline">Github</a>
+          
+          {!isAuthenticated ? (
+            <button
+              type="button"
+              onClick={handleSignIn}
+              className="border border-ink rounded-full uppercase px-3 py-1.5 text-xs hover:bg-ink hover:text-paper transition-colors font-medium cursor-pointer"
+            >
+              Sign In
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onSignOut}
+              className="border border-ink rounded-full uppercase px-3 py-1.5 text-xs hover:bg-err hover:text-paper hover:border-err transition-colors font-medium cursor-pointer text-ink"
+            >
+              Sign Out
+            </button>
+          )}
+
+          <button 
+            type="button"
+            onClick={handleLaunch} 
+            className="bg-forge text-ink uppercase px-4 py-2 hover:opacity-90 transition-opacity font-bold cursor-pointer text-xs sm:text-sm"
           >
-            DOCS
-          </a>
-          <button
-            onClick={onNavigateServices}
-            className="hover:text-[#F05423] transition cursor-pointer"
-          >
-            SERVICES
+            Launch App
           </button>
         </div>
+      </nav>
 
-        {/* Center Logo & Wordmark */}
-        <div className="flex items-center gap-2 cursor-pointer" onClick={onLaunchApp}>
-          <img src="/logo.png" alt="Foundereum" className="h-7 w-7 object-contain" />
-          <span className="font-bold text-base tracking-tight font-mono">Foundereum</span>
-        </div>
-
-        <div className="flex items-center gap-5 text-xs">
-          <a
-            href="https://github.com/Himesh-Kundal/foundereum"
-            target="_blank"
-            rel="noreferrer"
-            className="hover:text-[#F05423] transition hidden sm:inline"
+      {/* Hero */}
+      <section className="bg-dotted border-b border-ink py-24 px-4 flex flex-col items-center text-center relative">
+        <h1 className="font-display uppercase text-ink leading-[0.85] tracking-tight mb-8" style={{ fontSize: 'clamp(64px, 10vw, 140px)' }}>
+          <div>PAY-PER-CALL</div>
+          <div>TOOLS FOR</div>
+          <div>AI AGENTS</div>
+        </h1>
+        <p className="max-w-2xl text-lg mb-12 bg-paper px-2 py-1">
+          Give your agent a wallet, a policy, and a metered toolbelt. Every call settled on Hedera for fractions of a cent.
+        </p>
+        <div className="flex items-center gap-6">
+          <button 
+            type="button"
+            onClick={handleCreateProject} 
+            className="border border-ink rounded-full uppercase px-6 py-3 hover:bg-ink hover:text-paper transition-colors cursor-pointer font-medium"
           >
-            GITHUB
+            Create a Project
+          </button>
+          <a href="#docs" onClick={handleDocs} className="uppercase hover:text-forge transition-colors cursor-pointer">
+            Read the Docs ↗
           </a>
-          <BlockButton variant="forge" onClick={onLaunchApp} className="py-1.5 px-4 text-xs">
-            LAUNCH APP
-          </BlockButton>
-        </div>
-      </header>
-
-      {/* Hero Section */}
-      <section className="dotted border-b border-[#16181D] py-20 sm:py-28 px-4 text-center relative overflow-hidden">
-        <div className="max-w-4xl mx-auto space-y-6">
-          <h1 className="text-4xl sm:text-6xl md:text-7xl lg:text-8xl font-black uppercase tracking-tight text-[#16181D] leading-[0.95] font-['Archivo_Black']">
-            PAY-PER-CALL<br />
-            TOOLS FOR<br />
-            <span className="bg-[#D9D4C7] px-3 py-1 inline-block mt-2">AI AGENTS</span>
-          </h1>
-
-          <div className="max-w-2xl mx-auto">
-            <p className="bg-[#EDE9DE] p-2 inline-block text-xs sm:text-sm text-[#16181D] font-mono leading-relaxed border border-[#D9D4C7]">
-              Give your agent a wallet, a policy, and a metered toolbelt. Every call settled on Hedera for fractions of a cent.
-            </p>
-          </div>
-
-          <div className="flex flex-wrap items-center justify-center gap-4 pt-4">
-            <PillButton onClick={onLaunchApp}>
-              CREATE A PROJECT
-            </PillButton>
-            <a
-              href="https://github.com/Himesh-Kundal/foundereum/tree/main/docs"
-              target="_blank"
-              rel="noreferrer"
-              className="text-xs uppercase tracking-wider font-semibold text-[#16181D] hover:text-[#F05423] flex items-center gap-1 transition px-4 py-2"
-            >
-              <span>READ THE DOCS</span>
-              <span>↗</span>
-            </a>
-          </div>
         </div>
       </section>
 
-      {/* Marquee Ticker Strip */}
-      <div className="border-b border-[#16181D] bg-[#F4F1E9] py-2.5 overflow-hidden whitespace-nowrap text-xs font-mono">
-        <div className="animate-marquee flex items-center gap-6 text-[#16181D]">
-          <span>swap_tokens <strong className="text-[#F05423]">$0.0075</strong> · settled 0.0.1234@1757300212 ↗</span>
-          <span>·</span>
-          <span>execute_subgraph_query <strong className="text-[#F05423]">$0.00003</strong> · 9.1KB settled</span>
-          <span>·</span>
-          <span>analyze_pool_health <strong className="text-[#F05423]">$0.0006</strong> · score 94</span>
-          <span>·</span>
-          <span>deploy_substreams_pipeline <strong className="text-[#F05423]">$0.25</strong> · sync 14.2k blk/s</span>
-          <span>·</span>
-          <span>transfer_token <strong className="text-[#F05423]">$0.002</strong> · 0.0.987654 ↗</span>
-          <span>·</span>
-          <span>get_swap_quote <strong className="text-[#F05423]">$0.0001</strong> · SaucerSwap V2</span>
-          <span>·</span>
-          <span>verify_agent <strong className="text-[#F05423]">$0.00001</strong> · ERC-8004</span>
-          <span>·</span>
-          <span>swap_tokens <strong className="text-[#F05423]">$0.0075</strong> · settled 0.0.1234@1757300212 ↗</span>
-          <span>·</span>
-          <span>execute_subgraph_query <strong className="text-[#F05423]">$0.00003</strong> · 9.1KB settled</span>
+      {/* Ticker strip */}
+      <div className="border-b border-ink overflow-hidden whitespace-nowrap py-2 text-sm flex bg-paper">
+        <div className="animate-marquee flex gap-4 min-w-full">
+          {/* Double content for seamless loop */}
+          {[1, 2].map((i) => (
+            <span key={i} className="flex gap-4 items-center pl-4 shrink-0">
+              <span>swap_tokens <span className="text-forge">$0.0075</span> · settled 0.0.1234@1757300212 ↗</span>
+              <span>·</span>
+              <span>execute_subgraph_query <span className="text-forge">$0.00003</span></span>
+              <span>·</span>
+              <span>analyze_pool_health <span className="text-forge">$0.0006</span></span>
+              <span>·</span>
+              <span>transfer_token <span className="text-forge">$0.002</span></span>
+              <span>·</span>
+              <span>compare_protocol_tvl <span className="text-forge">$0.0006</span></span>
+              <span>·</span>
+            </span>
+          ))}
         </div>
       </div>
 
-      {/* 01 — HOW IT WORKS (4 Bracketed Cells) */}
-      <section className="border-b border-[#16181D]">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 divide-y sm:divide-y-0 sm:divide-x divide-[#16181D]">
-          <div className="p-6 bg-[#F4F1E9] hover:bg-[#EDE9DE] transition bracket-cell">
-            <span className="text-xs text-[#6B6E76] font-bold block mb-2">01</span>
-            <h3 className="text-sm font-bold uppercase tracking-wider mb-2">CREATE</h3>
-            <p className="text-xs text-[#16181D] leading-relaxed">
-              Wallets provisioned in Privy's TEE. Sign in and get dual treasury + agent accounts.
-            </p>
+      <main className="max-w-[1440px] mx-auto px-4 lg:px-8 py-16 flex flex-col gap-16">
+        {/* 01 - HOW IT WORKS */}
+        <section>
+          <div className="mb-6 flex gap-4 items-baseline">
+            <span className="text-ink-mut text-xs">01</span>
+            <h2 className="uppercase font-bold text-xl">How it works</h2>
           </div>
-          <div className="p-6 bg-[#F4F1E9] hover:bg-[#EDE9DE] transition bracket-cell">
-            <span className="text-xs text-[#6B6E76] font-bold block mb-2">02</span>
-            <h3 className="text-sm font-bold uppercase tracking-wider mb-2">FUND</h3>
-            <p className="text-xs text-[#16181D] leading-relaxed">
-              Test USDC in, balances sync live via Hedera mirror node webhooks.
-            </p>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 md:gap-0">
+            {[
+              { title: 'CREATE', text: "Sign in, name a project. Treasury + agent wallets are provisioned in Privy's TEE." },
+              { title: 'FUND', text: 'Send test USDC, or hit the faucet. Balances sync from the mirror node.' },
+              { title: 'RESTRICT', text: 'Set a daily cap, allowlist contracts. Default is deny.' },
+              { title: 'CONNECT', text: 'Paste one MCP config line into Claude. Done.' }
+            ].map((step, idx) => (
+              <div key={idx} className={`border border-ink p-6 corner-brackets flex flex-col gap-4 bg-paper min-h-[200px] ${idx !== 0 ? 'md:-ml-[1px]' : ''}`}>
+                <h3 className="uppercase font-bold">{step.title}</h3>
+                <p className="text-sm opacity-80 leading-relaxed">{step.text}</p>
+              </div>
+            ))}
           </div>
-          <div className="p-6 bg-[#F4F1E9] hover:bg-[#EDE9DE] transition bracket-cell">
-            <span className="text-xs text-[#6B6E76] font-bold block mb-2">03</span>
-            <h3 className="text-sm font-bold uppercase tracking-wider mb-2">RESTRICT</h3>
-            <p className="text-xs text-[#16181D] leading-relaxed">
-              Daily caps, per-call caps, and contract allowlists. Default is deny.
-            </p>
-          </div>
-          <div className="p-6 bg-[#F4F1E9] hover:bg-[#EDE9DE] transition bracket-cell">
-            <span className="text-xs text-[#6B6E76] font-bold block mb-2">04</span>
-            <h3 className="text-sm font-bold uppercase tracking-wider mb-2">CONNECT</h3>
-            <p className="text-xs text-[#16181D] leading-relaxed">
-              One MCP config line into Claude Desktop or Cursor. Start prompting.
-            </p>
-          </div>
-        </div>
-      </section>
+        </section>
 
-      {/* 02 — THE TOOLBELT */}
-      <section className="border-b border-[#16181D] p-6 sm:p-10 max-w-6xl mx-auto">
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <span className="text-xs text-[#6B6E76] font-bold block mb-1">02</span>
-            <h2 className="text-xl font-bold uppercase tracking-wider">THE TOOLBELT</h2>
+        {/* 02 - THE TOOLBELT */}
+        <section>
+          <div className="mb-6 flex gap-4 items-baseline">
+            <span className="text-ink-mut text-xs">02</span>
+            <h2 className="uppercase font-bold text-xl">The Toolbelt</h2>
           </div>
-          <button
-            onClick={onNavigateServices}
-            className="text-xs font-semibold hover:text-[#F05423] transition flex items-center gap-1 cursor-pointer"
-          >
-            <span>FULL DIRECTORY</span>
-            <span>↗</span>
-          </button>
-        </div>
+          <div className="border border-ink flex flex-col">
+            {(services.length > 0
+              ? services.slice(0, 6).map(s => ({
+                  tool: s.name,
+                  desc: s.description,
+                  price: s.pricing.BaseUSD 
+                    ? `$${s.pricing.BaseUSD}${s.pricing.NotionalBps ? ' + ' + s.pricing.NotionalBps + 'bps' : s.pricing.PerKBUSD && s.pricing.PerKBUSD !== '0' ? ' + /KB' : ''}` 
+                    : '$0.002'
+                }))
+              : [
+                  { tool: 'swap_tokens', desc: 'Swap HTS tokens on SaucerSwap DEX', price: '$0.005 + 5bps' },
+                  { tool: 'transfer_token', desc: 'Transfer HTS tokens between accounts', price: '$0.002' },
+                  { tool: 'execute_subgraph_query', desc: 'Query The Graph decentralized subgraphs', price: '$0.00001 + /KB' },
+                  { tool: 'analyze_pool_health', desc: 'Analyze DEX pool liquidity & depth via Messari', price: '~$0.0006' },
+                  { tool: 'compare_protocol_tvl', desc: 'Compare protocol TVL and metrics across chains', price: '~$0.0006' },
+                  { tool: 'deploy_contract', desc: 'Deploy smart contracts to Hedera EVM (chainId 296)', price: '$0.02+' }
+                ]
+            ).map((item, idx, arr) => (
+              <div key={idx} className={`flex flex-col sm:flex-row sm:items-center justify-between p-4 ${idx !== arr.length - 1 ? 'border-b border-ink' : ''} gap-4`}>
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-8 w-full">
+                  <span className="font-bold min-w-[240px]">{item.tool}</span>
+                  <span className="text-ink-mut text-sm">{item.desc}</span>
+                </div>
+                <div className="shrink-0">
+                  <span className="border border-ink rounded-full px-3 py-1 text-xs">{item.price}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="mt-4 text-right">
+            <a href="#services" onClick={handleServices} className="uppercase text-sm hover:text-forge transition-colors cursor-pointer">
+              Full Directory ↗ /services
+            </a>
+          </div>
+        </section>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="p-4 border border-[#16181D] bg-[#EDE9DE] flex items-center justify-between">
-            <div>
-              <div className="font-bold text-sm">swap_tokens</div>
-              <div className="text-xs text-[#6B6E76] mt-0.5">DEX swap via SaucerSwap router on Hedera</div>
+        {/* 03 - EVERY CALL IS A PAYMENT */}
+        <section>
+          <div className="mb-6 flex gap-4 items-baseline">
+            <span className="text-ink-mut text-xs">03</span>
+            <h2 className="uppercase font-bold text-xl">Every Call is a Payment</h2>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 border border-ink">
+            <div className="p-8 md:border-r border-ink flex flex-col justify-center">
+              <p className="leading-relaxed">
+                No API keys to meter. No subscriptions to manage. The HTTP 402 status code, an HTS transfer, and the Blocky402 facilitator paying the gas. Your agent never touches a private key.
+              </p>
             </div>
-            <PricePill price="$0.005 + 5bps" />
-          </div>
-
-          <div className="p-4 border border-[#16181D] bg-[#EDE9DE] flex items-center justify-between">
-            <div>
-              <div className="font-bold text-sm">transfer_token</div>
-              <div className="text-xs text-[#6B6E76] mt-0.5">Direct HTS token transfer on Hedera testnet</div>
-            </div>
-            <PricePill price="$0.002 flat" />
-          </div>
-
-          <div className="p-4 border border-[#16181D] bg-[#EDE9DE] flex items-center justify-between">
-            <div>
-              <div className="font-bold text-sm">execute_subgraph_query</div>
-              <div className="text-xs text-[#6B6E76] mt-0.5">GraphQL query against The Graph deployments</div>
-            </div>
-            <PricePill price="$0.00001 + data" />
-          </div>
-
-          <div className="p-4 border border-[#16181D] bg-[#EDE9DE] flex items-center justify-between">
-            <div>
-              <div className="font-bold text-sm">analyze_pool_health</div>
-              <div className="text-xs text-[#6B6E76] mt-0.5">Messari DEX pool liquidity score & risk assessment</div>
-            </div>
-            <PricePill price="~$0.0006" />
-          </div>
-
-          <div className="p-4 border border-[#16181D] bg-[#EDE9DE] flex items-center justify-between">
-            <div>
-              <div className="font-bold text-sm">deploy_substreams_pipeline</div>
-              <div className="text-xs text-[#6B6E76] mt-0.5">Single-prompt Substreams pipeline to Postgres sink</div>
-            </div>
-            <PricePill price="$0.25 flat" />
-          </div>
-
-          <div className="p-4 border border-[#16181D] bg-[#EDE9DE] flex items-center justify-between">
-            <div>
-              <div className="font-bold text-sm">deploy_contract</div>
-              <div className="text-xs text-[#6B6E76] mt-0.5">Deploy EVM smart contract on Hedera (chainId 296)</div>
-            </div>
-            <PricePill price="$0.02 + bytecode" />
-          </div>
-        </div>
-      </section>
-
-      {/* 03 — EVERY CALL IS A PAYMENT */}
-      <section className="border-b border-[#16181D]">
-        <div className="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-[#16181D]">
-          <div className="p-8 sm:p-12 flex flex-col justify-center bg-[#F4F1E9]">
-            <span className="text-xs text-[#6B6E76] font-bold block mb-1">03</span>
-            <h2 className="text-2xl font-bold uppercase tracking-wider mb-4">EVERY CALL IS A PAYMENT</h2>
-            <p className="text-xs sm:text-sm text-[#16181D] leading-relaxed mb-4">
-              No API keys to meter. No subscriptions to manage. The standard HTTP 402 Payment Required status code, an HTS token transfer, and the Blocky402 facilitator paying the gas.
-            </p>
-            <p className="text-xs text-[#6B6E76] leading-relaxed">
-              Your AI agent never touches a private key. Authorization happens in Privy's TEE under strict spending guardrails.
-            </p>
-          </div>
-
-          <div className="p-6 sm:p-8 bg-[#16181D] text-[#EDE9DE]">
-            <div className="text-xs text-[#F05423] font-bold mb-3 uppercase tracking-wider">
-              x402 Protocol Flow Excerpt
-            </div>
-            <TerminalBlock
-              compact
-              content={`POST /v1/tools/swap_tokens        → 402 payment required
+            <div className="bg-ink text-paper p-8 overflow-x-auto text-[13px] leading-relaxed">
+<pre><code>{`POST /v1/tools/swap_tokens        → 402 payment required
   amount: 7500 (0.0.429274 USDC)
-  payTo:  0.0.10413602
-  nonce:  9f4a8b22...120s-ttl
-
+  payTo:  0.0.5551234
 POST /v1/payments/build           → X-PAYMENT (signed in Privy TEE)
-  pre-check: velocity ok, allowlist ok
-
 POST /v1/tools/swap_tokens        → 200 ok
-  settled: 0.0.10413602@1788897039.753 ↗ hashscan
-  audit:   HCS topic 0.0.987654 #104`}
-            />
-          </div>
-        </div>
-      </section>
-
-      {/* 04 — GUARDRAILS, NOT VIBES */}
-      <section className="border-b border-[#16181D]">
-        <div className="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-[#16181D]">
-          <div className="p-8 sm:p-12 bg-[#F4F1E9]">
-            <span className="text-xs text-[#6B6E76] font-bold block mb-1">04</span>
-            <h2 className="text-2xl font-bold uppercase tracking-wider mb-6">GUARDRAILS, NOT VIBES</h2>
-            <ul className="space-y-3 text-xs sm:text-sm font-mono">
-              <li className="flex items-center gap-2">
-                <span className="text-[#F05423] font-bold text-base">✓</span>
-                <span>Daily spend caps & per-call limits</span>
-              </li>
-              <li className="flex items-center gap-2">
-                <span className="text-[#F05423] font-bold text-base">✓</span>
-                <span>Contract & function selector allowlists</span>
-              </li>
-              <li className="flex items-center gap-2">
-                <span className="text-[#F05423] font-bold text-base">✓</span>
-                <span>default_action: DENY inside Privy TEE</span>
-              </li>
-              <li className="flex items-center gap-2">
-                <span className="text-[#F05423] font-bold text-base">✓</span>
-                <span>m-of-n quorum threshold on treasury withdrawals</span>
-              </li>
-              <li className="flex items-center gap-2">
-                <span className="text-[#F05423] font-bold text-base">✓</span>
-                <span>Public tamper-proof audit trail on Hedera Consensus (HCS)</span>
-              </li>
-            </ul>
-          </div>
-
-          <div className="p-6 sm:p-8 bg-[#16181D] text-[#EDE9DE]">
-            <div className="text-xs text-[#F05423] font-bold mb-3 uppercase tracking-wider">
-              Enforced Policy JSON Spec
+  settled: 0.0.1234@1757300212.4  ↗ hashscan`}</code></pre>
             </div>
-            <TerminalBlock
-              compact
-              content={`{
-  "per_tx_usd_max": "50.00",
-  "daily_usd_max": "500.00",
-  "destination_allowlist": [
-    "0.0.10413602"
-  ],
-  "contract_allowlist": [
-    "0x0000000000000000000000000000000000104136"
-  ],
-  "selector_allowlist": [
-    "0x38ed1739",
-    "0xa9059cbb"
-  ],
+          </div>
+        </section>
+
+        {/* 04 - GUARDRAILS, NOT VIBES */}
+        <section>
+          <div className="mb-6 flex gap-4 items-baseline">
+            <span className="text-ink-mut text-xs">04</span>
+            <h2 className="uppercase font-bold text-xl">Guardrails, not vibes</h2>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 border border-ink">
+            <div className="p-8 md:border-r border-ink flex flex-col justify-center gap-4">
+              {[
+                'Daily spend caps',
+                'Contract + selector allowlists',
+                "default_action: DENY in Privy's TEE",
+                'm-of-n quorum on withdrawals',
+                'Public audit trail on HCS'
+              ].map((tick, idx) => (
+                <div key={idx} className="flex gap-3 items-center">
+                  <span className="text-forge font-bold">✓</span>
+                  <span>{tick}</span>
+                </div>
+              ))}
+            </div>
+            <div className="bg-ink text-paper p-8 overflow-x-auto text-[13px] leading-relaxed">
+<pre><code>{`{
+  "max_daily_usd": "25.00",
+  "max_per_call_usd": "1.00",
+  "contract_allowlist": ["0.0.429274"],
+  "selector_allowlist": ["0xa9059cbb"],
   "default_action": "DENY"
-}`}
-            />
+}`}</code></pre>
+            </div>
+          </div>
+        </section>
+
+        {/* 05 - BUILT ON */}
+        <section>
+          <div className="mb-6 flex gap-4 items-baseline">
+            <span className="text-ink-mut text-xs">05</span>
+            <h2 className="uppercase font-bold text-xl">Built On</h2>
+          </div>
+          <div className="border border-ink p-4 text-center uppercase tracking-wider text-sm flex flex-col md:flex-row justify-center items-center gap-4 md:gap-8">
+            <span>Hedera — settlement</span>
+            <span className="hidden md:inline">·</span>
+            <span>Privy — custody + policy</span>
+            <span className="hidden md:inline">·</span>
+            <span>The Graph — live data</span>
+          </div>
+        </section>
+      </main>
+
+      {/* Footer (Doc 11 §4.1) */}
+      <footer className="mt-24 border-t border-ink relative overflow-hidden flex flex-col items-center">
+        <div className="w-full flex justify-center py-8 z-10 relative bg-paper">
+          <div className="flex flex-wrap justify-center gap-4 md:gap-8 text-xs uppercase px-8 text-ink">
+            <span>BUSL-1.1</span>
+            <span>·</span>
+            <span>© 2026 Himesh Kundal</span>
+            <span>·</span>
+            <a href="#docs" onClick={handleDocs} className="hover:text-forge transition-colors cursor-pointer">docs</a>
+            <span>·</span>
+            <a href="https://github.com/Himesh-Kundal/foundereum" target="_blank" rel="noreferrer" className="hover:text-forge transition-colors">github</a>
+            <span>·</span>
+            <a href="#services" onClick={handleServices} className="hover:text-forge transition-colors cursor-pointer">/services</a>
           </div>
         </div>
-      </section>
-
-      {/* 05 — BUILT ON */}
-      <section className="border-b border-[#16181D] py-6 px-4 bg-[#EDE9DE] text-center text-xs tracking-wider">
-        <span className="font-bold text-[#16181D]">HEDERA</span> — settlement ·{" "}
-        <span className="font-bold text-[#16181D]">PRIVY</span> — custody + policy ·{" "}
-        <span className="font-bold text-[#16181D]">THE GRAPH</span> — live data
-      </section>
-
-      {/* Giant Cropped Footer */}
-      <footer className="pt-16 pb-10 px-4 bg-[#F4F1E9] text-center overflow-hidden">
-        <div className="text-5xl sm:text-7xl md:text-9xl font-black font-['Archivo_Black'] text-[#16181D] opacity-90 tracking-tighter leading-none select-none">
+        <div className="font-display uppercase text-ink leading-[0.8] text-center select-none translate-y-[20%]" style={{ fontSize: 'clamp(80px, 15vw, 240px)' }}>
           FOUNDEREUM
-        </div>
-        <div className="mt-8 text-xs text-[#6B6E76] font-mono flex flex-wrap items-center justify-center gap-4">
-          <span>BUSL-1.1</span>
-          <span>·</span>
-          <span>© 2026 Himesh Kundal</span>
-          <span>·</span>
-          <a
-            href="https://github.com/Himesh-Kundal/foundereum/tree/main/docs"
-            target="_blank"
-            rel="noreferrer"
-            className="hover:text-[#16181D]"
-          >
-            docs
-          </a>
-          <span>·</span>
-          <a
-            href="https://github.com/Himesh-Kundal/foundereum"
-            target="_blank"
-            rel="noreferrer"
-            className="hover:text-[#16181D]"
-          >
-            github
-          </a>
-          <span>·</span>
-          <button onClick={onNavigateServices} className="hover:text-[#16181D] cursor-pointer">
-            /services
-          </button>
         </div>
       </footer>
     </div>
   );
-};
+}

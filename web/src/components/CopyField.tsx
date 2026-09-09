@@ -1,19 +1,13 @@
-import React, { useState } from "react";
-import { Copy, Check } from "lucide-react";
+import { useState } from 'react';
+import { Copy, Check } from 'lucide-react';
 
-interface CopyFieldProps {
-  label?: string;
+export interface CopyFieldProps {
   value: string;
-  displayValue?: string;
-  className?: string;
+  label?: string;
+  masked?: boolean;
 }
 
-export const CopyField: React.FC<CopyFieldProps> = ({
-  label,
-  value,
-  displayValue,
-  className = "",
-}) => {
+export const CopyField = ({ value, label, masked }: CopyFieldProps) => {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = () => {
@@ -22,27 +16,25 @@ export const CopyField: React.FC<CopyFieldProps> = ({
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const displayValue = () => {
+    if (masked) return '••••••••••••••••••••••••••••••••';
+    if (value.length > 20) {
+      return `${value.slice(0, 10)}...${value.slice(-8)}`;
+    }
+    return value;
+  };
+
   return (
-    <div className={`font-mono text-xs ${className}`}>
-      {label && (
-        <span className="block text-[11px] uppercase tracking-wider text-[#6B6E76] mb-1">
-          {label}
-        </span>
-      )}
-      <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 border border-[#16181D] bg-[#EDE9DE]">
-        <span className="truncate text-[#16181D] font-mono select-all">
-          {displayValue || value}
-        </span>
-        <button
-          onClick={handleCopy}
-          className="text-[#6B6E76] hover:text-[#16181D] transition cursor-pointer shrink-0"
-          title="Copy"
+    <div className="flex flex-col gap-1 w-full">
+      {label && <span className="text-[12px] font-mono uppercase text-ink-mut">{label}</span>}
+      <div className="flex items-center justify-between border border-ink p-3 bg-paper2 font-mono text-sm">
+        <span className="truncate text-ink">{displayValue()}</span>
+        <button 
+          onClick={handleCopy} 
+          className="text-ink hover:text-forge transition-colors ml-4 flex-shrink-0 bg-transparent border-none cursor-pointer"
+          aria-label="Copy to clipboard"
         >
-          {copied ? (
-            <Check className="h-3.5 w-3.5 text-[#1E7F4F]" />
-          ) : (
-            <Copy className="h-3.5 w-3.5" />
-          )}
+          {copied ? <Check size={16} /> : <Copy size={16} />}
         </button>
       </div>
     </div>

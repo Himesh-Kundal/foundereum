@@ -1,33 +1,19 @@
-import React from "react";
+import { Cell } from './Cell';
 
-interface StatCellProps {
+export interface StatCellProps {
   label: string;
-  value: string | number;
+  value: string;
   delta?: string;
-  className?: string;
 }
 
-export const StatCell: React.FC<StatCellProps> = ({
-  label,
-  value,
-  delta,
-  className = "",
-}) => {
+export const StatCell = ({ label, value, delta }: StatCellProps) => {
   return (
-    <div className={`p-4 border border-[#16181D] bg-[#F4F1E9] ${className}`}>
-      <div className="text-[11px] font-mono uppercase tracking-wider text-[#6B6E76] mb-1">
-        {label}
+    <Cell className="flex flex-col">
+      <span className="text-[12px] font-mono uppercase text-ink-mut mb-2">{label}</span>
+      <div className="flex items-baseline gap-3">
+        <span className="text-[28px] font-mono font-medium text-ink">{value}</span>
+        {delta && <span className="text-sm font-mono text-ink-mut">{delta}</span>}
       </div>
-      <div className="flex items-baseline justify-between">
-        <div className="text-2xl sm:text-3xl font-mono font-medium text-[#16181D]">
-          {value}
-        </div>
-        {delta && (
-          <span className="text-xs font-mono text-[#1E7F4F] font-semibold">
-            {delta}
-          </span>
-        )}
-      </div>
-    </div>
+    </Cell>
   );
 };

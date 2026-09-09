@@ -1,43 +1,35 @@
-import React from "react";
+import type { ReactNode } from 'react';
 
-interface CellProps {
-  children: React.ReactNode;
-  className?: string;
-  num?: string;
+export interface CellProps {
+  number?: string;
   title?: string;
   brackets?: boolean;
-  fill?: "paper" | "paper2" | "ink";
+  className?: string;
+  fill?: 'paper' | 'paper2';
+  children?: ReactNode;
 }
 
-export const Cell: React.FC<CellProps> = ({
-  children,
-  className = "",
-  num,
+export const Cell = ({
+  number,
   title,
-  brackets = false,
-  fill = "paper",
-}) => {
-  const bgClass =
-    fill === "paper2"
-      ? "bg-[#EDE9DE]"
-      : fill === "ink"
-      ? "bg-[#16181D] text-[#F4F1E9]"
-      : "bg-[#F4F1E9]";
-
+  brackets,
+  className = '',
+  fill = 'paper',
+  children
+}: CellProps) => {
   return (
     <div
-      className={`border border-[#16181D] ${bgClass} ${
-        brackets ? "bracket-cell" : ""
-      } ${className}`}
+      className={`border border-ink relative ${fill === 'paper2' ? 'bg-paper2' : 'bg-paper'} ${brackets ? 'cell-brackets' : ''} ${className}`}
     >
-      {(num || title) && (
-        <div className="flex items-center gap-2 border-b border-[#16181D] px-3 py-1.5 text-xs font-mono text-[#6B6E76] bg-[#EDE9DE]">
-          {num && <span className="font-bold text-[#16181D]">{num}</span>}
-          {num && title && <span>—</span>}
-          {title && <span className="uppercase tracking-wider font-semibold text-[#16181D]">{title}</span>}
+      {(number || title) && (
+        <div className="flex items-center gap-4 p-4 border-b border-ink">
+          {number && <span className="text-[12px] uppercase text-ink-mut font-mono">{number}</span>}
+          {title && <h3 className="uppercase font-mono text-ink m-0">{title}</h3>}
         </div>
       )}
-      <div>{children}</div>
+      <div className="p-4">
+        {children}
+      </div>
     </div>
   );
 };

@@ -1,36 +1,25 @@
-import React from "react";
-
-interface SpendMeterProps {
-  currentUSD: number;
-  maxUSD: number;
-  showCaption?: boolean;
-  className?: string;
+export interface SpendMeterProps {
+  spent: number;
+  limit: number;
+  label?: string;
 }
 
-export const SpendMeter: React.FC<SpendMeterProps> = ({
-  currentUSD,
-  maxUSD,
-  showCaption = true,
-  className = "",
-}) => {
-  const percent = Math.min(100, Math.max(0, (currentUSD / maxUSD) * 100));
-  const isHigh = percent >= 90;
-  const fillColor = isHigh ? "bg-[#C6402E]" : "bg-[#F05423]";
+export const SpendMeter = ({ spent, limit, label = '24h' }: SpendMeterProps) => {
+  const percentage = Math.min((spent / limit) * 100, 100);
+  const isNearLimit = percentage > 90;
 
   return (
-    <div className={`flex items-center gap-2 font-mono text-xs text-[#16181D] ${className}`}>
-      <span className="text-[#6B6E76]">24h</span>
-      <div className="w-24 sm:w-28 h-3.5 border border-[#16181D] bg-[#EDE9DE] p-[1px]">
-        <div
-          className={`h-full ${fillColor} transition-all`}
-          style={{ width: `${percent}%` }}
+    <div className="w-full flex flex-col gap-2">
+      <div className="flex justify-between items-center text-sm font-mono uppercase text-ink">
+        <span>${spent.toFixed(2)} / ${limit.toFixed(2)}</span>
+        <span className="text-ink-mut">{label}</span>
+      </div>
+      <div className="h-4 bg-paper2 border border-ink w-full relative">
+        <div 
+          className={`h-full border-r border-ink transition-all ${isNearLimit ? 'bg-err' : 'bg-forge'}`}
+          style={{ width: `${percentage}%` }}
         />
       </div>
-      {showCaption && (
-        <span className="font-semibold text-xs whitespace-nowrap">
-          ${currentUSD.toFixed(2)} / ${maxUSD.toFixed(0)}
-        </span>
-      )}
     </div>
   );
 };

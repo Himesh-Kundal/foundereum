@@ -16,7 +16,7 @@ import (
 )
 
 func TestPgNumericConversion(t *testing.T) {
-	orig := decimal.NewFromFloat(1234.56789)
+	orig := decimal.RequireFromString("1234.56789")
 	pgNum := ToPgNumeric(orig)
 	back := FromPgNumeric(pgNum)
 
@@ -139,8 +139,8 @@ func TestLedgerIntegration(t *testing.T) {
 		Args:           []byte(`{"tokenIn":"USDC"}`),
 		IdempotencyKey: "idem-" + uuid.New().String(),
 		Nonce:          "nonce-" + uuid.New().String(),
-		EstimateUSD:    decimal.NewFromFloat(0.0001),
-		ActualUSD:      decimal.NewFromFloat(0.0001),
+		EstimateUSD:    decimal.RequireFromString("0.0001"),
+		ActualUSD:      decimal.RequireFromString("0.0001"),
 		MeteredBytes:   128,
 		TxHash:         "0.0.12345@12345.6789",
 		LatencyMs:      45,

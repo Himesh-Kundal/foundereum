@@ -1,88 +1,132 @@
-import React, { useState } from "react";
-import { ExternalLink } from "lucide-react";
+import { useState } from 'react';
+import { ExternalLink, ChevronDown, ChevronUp } from 'lucide-react';
+import { StatusPill } from './Pills';
 
-export interface CallItem {
-  id: string;
+export interface CallRowProps {
   tool: string;
-  priceUSD: string;
-  status: "settling" | "settled" | "rejected" | "failed";
-  meta?: string;
-  txHash?: string;
-  hashscanUrl?: string;
+  price: string;
+  status: 'settled' | 'pending' | 'rejected' | 'failed';
+  txId?: string;
   latency?: string;
-  timeAgo?: string;
-  payload?: any;
+  time?: string;
+  reason?: string;
+  args?: Record<string, unknown>;
+  meteringBreakdown?: string;
 }
 
-export const CallRow: React.FC<{ call: CallItem }> = ({ call }) => {
-  const [expanded, setExpanded] = useState(false);
+export const CallRow = ({ 
+  tool, 
+  price, 
+  status, 
+  txId, 
+  latency = '0.8s', 
+  time = 'Just now', 
+  reason,
+  args,
+  meteringBreakdown
+}: CallRowProps) => {
+  const [isExpanded, setIsExpanded] = useState(false);
 
-  let sparkColor = "bg-[#1E7F4F]"; // ok / green
-  if (call.status === "settling") {
-    sparkColor = "bg-[#F05423] animate-pulse"; // forge / orange pulse
-  } else if (call.status === "rejected" || call.status === "failed") {
-    sparkColor = "bg-[#C6402E]"; // err / red
-  }
+  const getSparkClass = () => {
+    switch(status) {
+      case 'settled': return 'bg-ok';
+      case 'pending': return 'bg-forge animate-pulse-spark';
+      case 'rejected':
+      case 'failed': return 'bg-err';
+      default: return 'bg-ink';
+    }
+  };
+
+  const displayArgs: Record<string, unknown> = args && Object.keys(args).length > 0
+    ? args 
+    : { status: "No arguments recorded" };
+
+  const breakdown = meteringBreakdown || `Base settled rate: ${price}`;
 
   return (
-    <div className="border-b border-[#16181D] last:border-b-0">
-      <div
-        onClick={() => setExpanded(!expanded)}
-        className="flex items-center justify-between px-3 py-2.5 hover:bg-[#EDE9DE] transition cursor-pointer text-xs font-mono select-none"
+    <div className="border-b border-ink last:border-b-0 font-mono text-sm bg-paper hover:bg-paper2/60 transition-colors">
+      {/* Row Summary */}
+      <div 
+        onClick={() => setIsExpanded(!isExpanded)}
+        className="flex flex-col sm:flex-row sm:items-center justify-between p-4 cursor-pointer select-none gap-3"
       >
-        <div className="flex items-center gap-2.5 overflow-hidden pr-2">
-          {/* 8x8px square spark per spec */}
-          <div className={`w-2 h-2 shrink-0 ${sparkColor}`} />
-          <span className="font-bold text-[#16181D]">{call.tool}</span>
-
-          {call.status === "rejected" ? (
-            <span className="text-[#C6402E] truncate font-medium">
-              policy_rejected · {call.meta || "contract_allowlist"}
+        <div className="flex items-center gap-3 flex-1 min-w-0">
+          {/* Spark motif: 8x8px square */}
+          <div className={`w-2 h-2 shrink-0 ${getSparkClass()}`} title={`Status: ${status}`} />
+          <span className="font-bold text-ink truncate">{tool}</span>
+          <span className="text-forge font-medium shrink-0">{price}</span>
+          
+          {status === 'rejected' && reason && (
+            <span className="text-err text-xs truncate">
+              policy_rejected · {reason}
             </span>
-          ) : (
-            <span className="text-[#F05423] font-semibold">{call.priceUSD}</span>
-          )}
-
-          {call.meta && call.status !== "rejected" && (
-            <span className="text-[#6B6E76] hidden sm:inline">· {call.meta}</span>
           )}
         </div>
-
-        <div className="flex items-center gap-3 shrink-0 text-[#6B6E76]">
-          {call.status === "settling" ? (
-            <span className="text-[#F05423] italic">settling...</span>
-          ) : (
-            <>
-              {call.hashscanUrl && (
-                <a
-                  href={call.hashscanUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  onClick={(e) => e.stopPropagation()}
-                  className="hover:text-[#16181D] flex items-center gap-0.5"
-                >
-                  <span className="hidden md:inline">{call.txHash || "0.0.1234@...4"}</span>
-                  <ExternalLink className="h-3 w-3" />
-                </a>
-              )}
-              {call.latency && <span>{call.latency}</span>}
-              {call.timeAgo && <span className="hidden lg:inline">{call.timeAgo}</span>}
-            </>
+        
+        <div className="flex items-center gap-4 shrink-0 justify-between sm:justify-end text-xs">
+          <StatusPill status={status} />
+          {latency && <span className="text-ink-mut">{latency}</span>}
+          {time && <span className="text-ink-mut hidden md:inline">{time}</span>}
+          
+          {txId && (
+            <a 
+              href={`https://hashscan.io/testnet/transaction/${txId}`} 
+              target="_blank" 
+              rel="noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="flex items-center gap-1 text-ink hover:text-forge transition-colors"
+              title="View on HashScan"
+            >
+              <span>{txId}</span>
+              <ExternalLink size={12} />
+            </a>
           )}
+
+          <button type="button" className="text-ink-mut hover:text-ink">
+            {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+          </button>
         </div>
       </div>
 
-      {expanded && (
-        <div className="p-3 bg-[#16181D] text-[#EDE9DE] font-mono text-xs border-t border-[#16181D] space-y-2">
-          <div className="flex items-center justify-between text-[11px] text-[#A0A4AB] border-b border-[#2a2e37] pb-1">
-            <span>CALL ID: {call.id}</span>
-            <span>STATUS: {call.status.toUpperCase()}</span>
+      {/* Expanded Inspection Drawer (Doc 11 §4.10) */}
+      {isExpanded && (
+        <div className="p-4 bg-paper2 border-t border-ink border-dashed flex flex-col gap-3 text-xs">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Arguments */}
+            <div className="flex flex-col gap-1">
+              <span className="font-bold text-ink-mut uppercase">Payload Arguments:</span>
+              <pre className="bg-ink text-paper p-3 overflow-x-auto text-[11px] leading-relaxed">
+                <code>{JSON.stringify(displayArgs, null, 2)}</code>
+              </pre>
+            </div>
+
+            {/* Metering breakdown and Rail details */}
+            <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-1">
+                <span className="font-bold text-ink-mut uppercase">x402 Metering Formula:</span>
+                <div className="p-2 border border-ink bg-paper text-ink font-mono text-[11px]">
+                  {breakdown}
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <span className="font-bold text-ink-mut uppercase">Settlement Rail:</span>
+                <div className="p-2 border border-ink bg-paper text-ink text-[11px] flex justify-between items-center">
+                  <span>Hedera Testnet (HTS USDC) via Blocky402</span>
+                  <span className="text-ok font-bold">✓ Gasless Facilitator</span>
+                </div>
+              </div>
+
+              {status === 'rejected' && (
+                <div className="flex flex-col gap-1">
+                  <span className="font-bold text-err uppercase">Denial Details:</span>
+                  <div className="p-2 border border-err bg-err/10 text-err text-[11px]">
+                    Violation of Privy policy rule: {reason || 'Contract or selector not allowlisted'} (default_action: DENY)
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
-          {call.payload && (
-            <pre className="overflow-x-auto text-[11px] leading-relaxed text-[#EDE9DE]">
-              {JSON.stringify(call.payload, null, 2)}
-            </pre>
-          )}
         </div>
       )}
     </div>

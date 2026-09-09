@@ -1,41 +1,27 @@
-import React from "react";
-import { ExternalLink } from "lucide-react";
-
-export interface AuditItem {
+export interface AuditRowProps {
   seq: number;
   tool: string;
-  amountUSD: string;
+  amount: string;
   timestamp: string;
-  topicId: string;
-  txId: string;
   matched: boolean;
 }
 
-export const AuditRow: React.FC<{ item: AuditItem }> = ({ item }) => {
+export const AuditRow = ({ seq, tool, amount, timestamp, matched }: AuditRowProps) => {
   return (
-    <tr className="border-b border-[#16181D] hover:bg-[#EDE9DE] transition font-mono text-xs text-[#16181D]">
-      <td className="py-2 px-3 font-bold text-[#16181D]">#{item.seq}</td>
-      <td className="py-2 px-3 font-semibold">{item.tool}</td>
-      <td className="py-2 px-3 text-[#F05423] font-bold">{item.amountUSD}</td>
-      <td className="py-2 px-3 text-[#6B6E76]">{item.timestamp}</td>
-      <td className="py-2 px-3">
-        <a
-          href={`https://hashscan.io/testnet/transaction/${item.txId}`}
-          target="_blank"
-          rel="noreferrer"
-          className="hover:text-[#F05423] flex items-center gap-1 text-[#16181D]"
-        >
-          <span className="truncate max-w-[140px] sm:max-w-[200px]">{item.txId}</span>
-          <ExternalLink className="h-3 w-3 shrink-0" />
-        </a>
-      </td>
-      <td className="py-2 px-3 text-right">
-        {item.matched ? (
-          <span className="text-[#1E7F4F] font-bold">✓ matched</span>
+    <div className="flex items-center justify-between p-4 border-b border-ink last:border-b-0 font-mono text-sm hover:bg-paper2 transition-colors">
+      <div className="flex items-center gap-6">
+        <span className="text-ink-mut w-16">#{seq}</span>
+        <span className="text-ink">{tool}</span>
+        <span className="text-forge">{amount}</span>
+      </div>
+      <div className="flex items-center gap-6">
+        <span className="text-ink-mut">{timestamp}</span>
+        {matched ? (
+          <span className="text-ok flex items-center gap-2">✓ matched</span>
         ) : (
-          <span className="text-[#C6402E] font-bold">⚠ unmatched</span>
+          <span className="text-forge flex items-center gap-2">⚠ unmatched</span>
         )}
-      </td>
-    </tr>
+      </div>
+    </div>
   );
 };

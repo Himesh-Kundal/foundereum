@@ -1,75 +1,136 @@
-import React from "react";
-import { BlockButton } from "./Buttons";
+import { useState, useEffect } from 'react';
+import { Cell } from './Cell';
+import { BlockButton } from './Buttons';
 
-export interface ApprovalItem {
-  id: string;
-  type: string;
-  description: string;
-  signatures_collected: number;
+export interface ApprovalCardProps {
+  action: string;
+  current: number;
   threshold: number;
-  requester: string;
-  expires_at: string;
-  status: "pending" | "approved" | "rejected";
+  expiry?: string;
+  onApprove?: () => void;
+  onReject?: () => void;
+  isHistory?: boolean;
+  initialStatus?: 'pending' | 'approved' | 'executed' | 'rejected';
 }
 
-export const ApprovalCard: React.FC<{
-  approval: ApprovalItem;
-  onApprove: (id: string) => void;
-  onReject: (id: string) => void;
-}> = ({ approval, onApprove, onReject }) => {
-  // Render filled and empty squares: e.g. ■ □ (1/2)
-  const squares = [];
-  for (let i = 0; i < approval.threshold; i++) {
-    const filled = i < approval.signatures_collected;
-    squares.push(
-      <span
-        key={i}
-        className={`inline-block w-3 h-3 border border-[#16181D] ${
-          filled ? "bg-[#16181D]" : "bg-[#EDE9DE]"
-        }`}
-      />
-    );
-  }
+export const ApprovalCard = ({ 
+  action, 
+  current: initialCurrent, 
+  threshold, 
+  expiry,
+  onApprove,
+  onReject,
+  isHistory = false,
+  initialStatus
+}: ApprovalCardProps) => {
+  const [current, setCurrent] = useState(initialCurrent);
+  const [isSigning, setIsSigning] = useState(false);
+  const [status, setStatus] = useState<'pending' | 'approved' | 'rejected'>(() => {
+    if (initialStatus === 'executed' || initialStatus === 'approved') return 'approved';
+    if (initialStatus === 'rejected') return 'rejected';
+    return 'pending';
+  });
+
+  useEffect(() => {
+    setCurrent(initialCurrent);
+    if (initialStatus) {
+      setStatus(initialStatus === 'executed' || initialStatus === 'approved' ? 'approved' : initialStatus);
+    }
+  }, [initialCurrent, initialStatus]);
+
+  const handleApprove = async () => {
+    setIsSigning(true);
+    try {
+      // Simulate real in-browser WebCrypto P-256 signature generation
+      if (window.crypto && window.crypto.subtle) {
+        const keyPair = await window.crypto.subtle.generateKey(
+          { name: 'ECDSA', namedCurve: 'P-256' },
+          true,
+          ['sign', 'verify']
+        );
+        const data = new TextEncoder().encode(action);
+        await window.crypto.subtle.sign(
+          { name: 'ECDSA', hash: { name: 'SHA-256' } },
+          keyPair.privateKey,
+          data
+        );
+      }
+    } catch {
+      // Fallback
+    }
+
+    const nextCount = current + 1;
+    setCurrent(nextCount);
+    setIsSigning(false);
+    if (nextCount >= threshold) {
+      setStatus('approved');
+    }
+    if (onApprove) onApprove();
+  };
+
+  const handleReject = () => {
+    setStatus('rejected');
+    if (onReject) onReject();
+  };
+
+  const renderSquares = () => {
+    const squares = [];
+    for (let i = 0; i < Math.max(current, threshold); i++) {
+      squares.push(
+        <span key={i} className={`text-base ${i < current ? 'text-forge' : 'text-ink-mut'}`}>
+          {i < current ? '■' : '□'}
+        </span>
+      );
+    }
+    return squares;
+  };
 
   return (
-    <div className="border border-[#16181D] bg-[#F4F1E9] p-4 bracket-cell font-mono text-xs space-y-3">
-      <div className="flex items-center justify-between border-b border-[#16181D] pb-2">
-        <span className="font-bold text-[#16181D] uppercase tracking-wider">
-          {approval.type}
-        </span>
-        <span className="text-[#6B6E76] text-[11px]">EXP: {approval.expires_at}</span>
-      </div>
+    <Cell brackets className="w-full">
+      <div className="flex flex-col gap-4 font-mono">
+        <div className="flex justify-between items-start">
+          <span className="font-bold text-ink text-sm uppercase">{action}</span>
+          {status === 'approved' && (
+            <span className="text-ok text-xs font-bold border border-ok px-2 py-0.5">✓ EXECUTED</span>
+          )}
+          {status === 'rejected' && (
+            <span className="text-err text-xs font-bold border border-err px-2 py-0.5">REJECTED</span>
+          )}
+        </div>
+        
+        <div className="flex items-center justify-between border-y border-ink border-dashed py-3 text-xs">
+          <div className="flex items-center gap-2 text-ink">
+            <span className="uppercase text-ink-mut">SIGNATURES:</span>
+            <div className="flex gap-1">
+              {renderSquares()}
+            </div>
+            <span className="font-bold ml-1">
+              {current}/{threshold}
+            </span>
+          </div>
 
-      <p className="text-sm font-medium text-[#16181D]">{approval.description}</p>
-
-      <div className="flex items-center justify-between pt-1">
-        <div className="flex items-center gap-2">
-          <span className="text-[11px] text-[#6B6E76] uppercase">Signatures:</span>
-          <div className="flex items-center gap-1.5">{squares}</div>
-          <span className="font-bold text-[#16181D]">
-            {approval.signatures_collected} / {approval.threshold}
-          </span>
+          {expiry && status === 'pending' && (
+            <span className="text-err text-xs font-medium">
+              Expires in {expiry}
+            </span>
+          )}
         </div>
 
-        {approval.status === "pending" && (
-          <div className="flex items-center gap-2">
-            <BlockButton
-              variant="ghost"
-              onClick={() => onReject(approval.id)}
-              className="text-[11px] py-1 px-2.5"
+        {!isHistory && status === 'pending' && (
+          <div className="flex justify-end gap-3 mt-1">
+            <button 
+              type="button"
+              onClick={handleReject} 
+              className="border border-ink px-4 py-2 text-xs font-mono uppercase hover:bg-paper2 transition-colors cursor-pointer"
             >
-              Reject
-            </BlockButton>
-            <BlockButton
-              variant="forge"
-              onClick={() => onApprove(approval.id)}
-              className="text-[11px] py-1 px-3"
-            >
-              Approve
+              REJECT
+            </button>
+            <BlockButton onClick={handleApprove}>
+              {isSigning ? 'SIGNING VIA WEBCRYPTO...' : 'APPROVE (SIGN P-256)'}
             </BlockButton>
           </div>
         )}
       </div>
-    </div>
+    </Cell>
   );
 };

@@ -203,9 +203,12 @@ func main() {
 
 	// Metrics endpoint
 	r.Handle("/metrics", httpx.MetricsHandler())
+	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		httpx.JSON(w, http.StatusOK, map[string]any{"status": "ok", "service": "foundereum-api"})
+	})
 
 	// Public Services Directory
-	r.Get("/services", func(w http.ResponseWriter, r *http.Request) {
+	servicesHandler := func(w http.ResponseWriter, r *http.Request) {
 		specs := tools.List()
 		var toolList []map[string]any
 		for _, sp := range specs {
@@ -229,7 +232,9 @@ func main() {
 			},
 			"tools": toolList,
 		})
-	})
+	}
+	r.Get("/services", servicesHandler)
+	r.Get("/v1/services", servicesHandler)
 
 	// Auth session & dev login
 	r.Post("/v1/auth/dev", func(w http.ResponseWriter, r *http.Request) {
@@ -251,12 +256,37 @@ func main() {
 	r.Post("/v1/auth/session", func(w http.ResponseWriter, r *http.Request) {
 		userID := uuid.New()
 		orgID, _ := uuid.Parse(demoOrgID)
-		token, _ := authSvc.IssueToken(userID, orgID, "operator@foundereum.org", "owner")
+		
+		var req struct {
+			Email string `json:"email"`
+			Role  string `json:"role"`
+			Org   string `json:"org"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		
+		email := "operator@foundereum.org"
+		if req.Email != "" {
+			email = req.Email
+		}
+		role := "owner"
+		if req.Role != "" {
+			role = req.Role
+		}
+		orgName := "Acme Ventures"
+		if req.Org != "" {
+			orgName = req.Org
+		}
+
+		token, err := authSvc.IssueToken(userID, orgID, email, role)
+		if err != nil {
+			httpx.Err(w, http.StatusInternalServerError, "AUTH_FAILED", err.Error())
+			return
+		}
 		httpx.JSON(w, http.StatusOK, map[string]any{
 			"jwt":  token,
-			"user": map[string]any{"id": userID, "email": "operator@foundereum.org"},
-			"org":  map[string]any{"id": orgID, "name": "Acme Ventures"},
-			"role": "owner",
+			"user": map[string]any{"id": userID, "email": email},
+			"org":  map[string]any{"id": orgID, "name": orgName},
+			"role": role,
 		})
 	})
 
@@ -409,18 +439,81 @@ func main() {
 			memStore.mu.RLock()
 			p, ok := memStore.projects[id]
 			wlt := memStore.wallets[id]
+			pol := memStore.policies[id]
+			calls := memStore.calls[id]
 			memStore.mu.RUnlock()
 			if !ok {
 				httpx.Err(w, http.StatusNotFound, "NOT_FOUND", "project not found")
 				return
 			}
+
+			// Dynamically sum USDC across all wallets of this project
+			totalUSDC := decimal.Zero
+			for _, w := range wlt {
+				if usdcStr, ok := w["usdc"].(string); ok {
+					if d, err := decimal.NewFromString(usdcStr); err == nil {
+						totalUSDC = totalUSDC.Add(d)
+					}
+				}
+			}
+
+			// Calculate 24h spend
+			spend24h := decimal.Zero
+			if queries != nil {
+				if pUUID, err := uuid.Parse(id); err == nil {
+					if s, err := queries.SpendLast24h(r.Context(), toPgUUID(pUUID)); err == nil {
+						spend24h = ledger.FromPgNumeric(s)
+					}
+				}
+			}
+			if spend24h.IsZero() && len(calls) > 0 {
+				now := time.Now()
+				for _, c := range calls {
+					if st, ok := c["status"].(string); ok && (st == "succeeded" || st == "settled" || st == "paid") {
+						startedAtStr, _ := c["started_at"].(string)
+						if t, err := time.Parse(time.RFC3339, startedAtStr); err == nil {
+							if now.Sub(t) <= 24*time.Hour {
+								amtStr := fmt.Sprintf("%v", c["actual_usd"])
+								if amtStr == "" || amtStr == "<nil>" {
+									amtStr = fmt.Sprintf("%v", c["estimate_usd"])
+								}
+								if d, err := decimal.NewFromString(amtStr); err == nil {
+									spend24h = spend24h.Add(d)
+								}
+							}
+						}
+					}
+				}
+			}
+
+			// Dynamic cap from policy
+			capUSD := "25.00"
+			if pol != nil {
+				if spec, ok := pol["spec"].(policy.Spec); ok && spec.Velocity.MaxUSDPer24h != "" {
+					capUSD = spec.Velocity.MaxUSDPer24h
+				} else if specMap, ok := pol["spec"].(map[string]any); ok {
+					if m, ok := specMap["max_daily_usd"].(string); ok && m != "" {
+						capUSD = m
+					} else if vel, ok := specMap["velocity"].(map[string]any); ok {
+						if m2, ok := vel["max_usd_per_24h"].(string); ok && m2 != "" {
+							capUSD = m2
+						}
+					}
+				}
+			}
+
+			hcsTopic := platformAccount
+			if h, ok := p["hcs_topic_id"].(string); ok && h != "" {
+				hcsTopic = h
+			}
+
 			httpx.JSON(w, http.StatusOK, map[string]any{
 				"project":       p,
 				"wallets":       wlt,
-				"balances_usd":  "175.00",
-				"spend_24h_usd": "0.00",
-				"cap_usd":       "25.00",
-				"hcs_topic":     platformAccount,
+				"balances_usd":  totalUSDC.StringFixed(2),
+				"spend_24h_usd": spend24h.StringFixed(2),
+				"cap_usd":       capUSD,
+				"hcs_topic":     hcsTopic,
 				"identity":      map[string]any{"scheme": "foundereum.hedera.v1", "agent_id": 1},
 			})
 		})
@@ -435,6 +528,17 @@ func main() {
 
 		pr.Post("/v1/projects/{id}/faucet", func(w http.ResponseWriter, r *http.Request) {
 			id := chi.URLParam(r, "id")
+			memStore.mu.Lock()
+			for _, wlt := range memStore.wallets[id] {
+				if wlt["kind"] == "treasury" {
+					currUSDC, _ := decimal.NewFromString(fmt.Sprintf("%v", wlt["usdc"]))
+					currHBAR, _ := decimal.NewFromString(fmt.Sprintf("%v", wlt["hbar"]))
+					wlt["usdc"] = currUSDC.Add(decimal.NewFromInt(50)).StringFixed(6)
+					wlt["hbar"] = currHBAR.Add(decimal.NewFromInt(10)).StringFixed(6)
+				}
+			}
+			memStore.mu.Unlock()
+
 			if rdb != nil {
 				msg, _ := json.Marshal(map[string]any{
 					"type":       "wallet.balance",
@@ -463,6 +567,35 @@ func main() {
 			if req.AmountUSDC == "" {
 				req.AmountUSDC = "10.000000"
 			}
+			topupAmt, err := decimal.NewFromString(req.AmountUSDC)
+			if err != nil || topupAmt.LessThanOrEqual(decimal.Zero) {
+				httpx.Err(w, http.StatusBadRequest, "INVALID_AMOUNT", "amount must be positive")
+				return
+			}
+
+			memStore.mu.Lock()
+			var treasuryW, agentW map[string]any
+			for _, wlt := range memStore.wallets[id] {
+				if wlt["kind"] == "treasury" {
+					treasuryW = wlt
+				} else if wlt["kind"] == "agent" {
+					agentW = wlt
+				}
+			}
+
+			if treasuryW != nil && agentW != nil {
+				tUSDC, _ := decimal.NewFromString(fmt.Sprintf("%v", treasuryW["usdc"]))
+				if tUSDC.LessThan(topupAmt) {
+					memStore.mu.Unlock()
+					httpx.Err(w, http.StatusBadRequest, "INSUFFICIENT_FUNDS", "treasury balance is insufficient for top-up")
+					return
+				}
+				aUSDC, _ := decimal.NewFromString(fmt.Sprintf("%v", agentW["usdc"]))
+				treasuryW["usdc"] = tUSDC.Sub(topupAmt).StringFixed(6)
+				agentW["usdc"] = aUSDC.Add(topupAmt).StringFixed(6)
+			}
+			memStore.mu.Unlock()
+
 			if rdb != nil {
 				msg, _ := json.Marshal(map[string]any{
 					"type":        "wallet.balance",
@@ -661,61 +794,96 @@ func main() {
 
 		pr.Get("/v1/projects/{id}/calls", func(w http.ResponseWriter, r *http.Request) {
 			id := chi.URLParam(r, "id")
+			if queries != nil {
+				pUUID, err := uuid.Parse(id)
+				if err == nil {
+					dbCalls, err := queries.GetCallsByProject(r.Context(), db.GetCallsByProjectParams{
+						ProjectID: toPgUUID(pUUID),
+						Limit:     50,
+						Offset:    0,
+					})
+					if err == nil && len(dbCalls) > 0 {
+						var resCalls []map[string]any
+						for _, c := range dbCalls {
+							var argsMap map[string]any
+							if len(c.Args) > 0 {
+								_ = json.Unmarshal(c.Args, &argsMap)
+							}
+							resCalls = append(resCalls, map[string]any{
+								"id":            c.ID.String(),
+								"tool":          c.Tool,
+								"status":        c.Status,
+								"estimate_usd":  ledger.FromPgNumeric(c.EstimateUsd).StringFixed(6),
+								"actual_usd":    ledger.FromPgNumeric(c.ActualUsd).StringFixed(6),
+								"tx_hash":       c.TxHash.String,
+								"latency_ms":    c.LatencyMs.Int32,
+								"started_at":    c.StartedAt.Time.Format(time.RFC3339),
+								"args":          argsMap,
+								"metered_bytes": c.MeteredBytes.Int32,
+							})
+						}
+						httpx.JSON(w, http.StatusOK, resCalls)
+						return
+					}
+				}
+			}
+
 			memStore.mu.RLock()
 			calls := memStore.calls[id]
 			memStore.mu.RUnlock()
-			if len(calls) == 0 {
-				calls = []map[string]any{
-					{
-						"id":           uuid.NewString(),
-						"tool":         "analyze_pool_health",
-						"status":       "succeeded",
-						"estimate_usd": "0.000500",
-						"actual_usd":   "0.000528",
-						"tx_hash":      fmt.Sprintf("%s@1757300000.123456789", platformAccount),
-						"latency_ms":   420,
-						"started_at":   time.Now().Add(-5 * time.Minute).Format(time.RFC3339),
-					},
-					{
-						"id":           uuid.NewString(),
-						"tool":         "swap_tokens",
-						"status":       "succeeded",
-						"estimate_usd": "0.007500",
-						"actual_usd":   "0.007500",
-						"tx_hash":      "0x789abcde1234567890abcdef1234567890abcdef1234567890abcdef12345678",
-						"latency_ms":   1150,
-						"started_at":   time.Now().Add(-2 * time.Minute).Format(time.RFC3339),
-					},
-				}
+			if calls == nil {
+				calls = []map[string]any{}
 			}
 			httpx.JSON(w, http.StatusOK, calls)
 		})
 
 		pr.Get("/v1/projects/{id}/audit", func(w http.ResponseWriter, r *http.Request) {
+			id := chi.URLParam(r, "id")
 			topicID := platformAccount
+
+			if queries != nil {
+				pUUID, err := uuid.Parse(id)
+				if err == nil {
+					if proj, err := queries.GetProject(r.Context(), toPgUUID(pUUID)); err == nil && proj.HcsTopicID.Valid {
+						topicID = proj.HcsTopicID.String
+					}
+				}
+			}
+
+			var msgs []map[string]any
+			if queries != nil {
+				pUUID, err := uuid.Parse(id)
+				if err == nil {
+					payments, err := queries.GetPaymentsByProject(r.Context(), db.GetPaymentsByProjectParams{
+						ProjectID: toPgUUID(pUUID),
+						Limit:     50,
+					})
+					if err == nil {
+						for _, p := range payments {
+							if p.HcsSeq.Valid {
+								msgs = append(msgs, map[string]any{
+									"seq":    p.HcsSeq.Int64,
+									"ts":     p.SettledAt.Time.Format(time.RFC3339),
+									"tool":   p.Asset,
+									"amount": ledger.FromPgNumeric(p.Amount).StringFixed(6),
+									"usd":    ledger.FromPgNumeric(p.AmountUsd).StringFixed(4),
+									"payer":  platformAccount,
+									"tx_id":  p.HederaTxID.String,
+								})
+							}
+						}
+					}
+				}
+			}
+
+			if msgs == nil {
+				msgs = []map[string]any{}
+			}
+
 			httpx.JSON(w, http.StatusOK, map[string]any{
 				"topic_id":     topicID,
 				"hashscan_url": fmt.Sprintf("https://hashscan.io/%s/topic/%s", cfg.HederaNetwork, topicID),
-				"messages": []map[string]any{
-					{
-						"seq":    101,
-						"ts":     time.Now().Add(-5 * time.Minute).Format(time.RFC3339),
-						"tool":   "analyze_pool_health",
-						"amount": "500",
-						"usd":    "0.0005",
-						"payer":  platformAccount,
-						"tx_id":  fmt.Sprintf("%s@1757300000.123456789", platformAccount),
-					},
-					{
-						"seq":    102,
-						"ts":     time.Now().Add(-2 * time.Minute).Format(time.RFC3339),
-						"tool":   "swap_tokens",
-						"amount": "7500",
-						"usd":    "0.0075",
-						"payer":  platformAccount,
-						"tx_id":  fmt.Sprintf("%s@1757300120.987654321", platformAccount),
-					},
-				},
+				"messages":     msgs,
 			})
 		})
 
@@ -733,39 +901,229 @@ func main() {
 				ToAccount  string `json:"to_account"`
 				AmountUSDC string `json:"amount_usdc"`
 			}
-			_ = json.NewDecoder(r.Body).Decode(&req)
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				httpx.Err(w, http.StatusBadRequest, "INVALID_BODY", err.Error())
+				return
+			}
+			if req.AmountUSDC == "" {
+				req.AmountUSDC = "50.000000"
+			}
+			wAmt, err := decimal.NewFromString(req.AmountUSDC)
+			if err != nil || wAmt.LessThanOrEqual(decimal.Zero) {
+				httpx.Err(w, http.StatusBadRequest, "INVALID_AMOUNT", "amount must be positive")
+				return
+			}
+
+			memStore.mu.Lock()
+			defer memStore.mu.Unlock()
+
+			// Verify treasury has enough funds
+			var treasuryW map[string]any
+			for _, wlt := range memStore.wallets[id] {
+				if wlt["kind"] == "treasury" {
+					treasuryW = wlt
+					break
+				}
+			}
+			if treasuryW == nil {
+				httpx.Err(w, http.StatusBadRequest, "WALLET_NOT_FOUND", "treasury wallet not found")
+				return
+			}
+			tUSDC, _ := decimal.NewFromString(fmt.Sprintf("%v", treasuryW["usdc"]))
+			if tUSDC.LessThan(wAmt) {
+				httpx.Err(w, http.StatusBadRequest, "INSUFFICIENT_FUNDS", "treasury USDC balance insufficient for withdrawal")
+				return
+			}
+
+			p := memStore.projects[id]
+			threshold := 2
+			minQuorumUSD := decimal.RequireFromString("100")
+			if p != nil {
+				if th, ok := p["quorum_threshold"].(int); ok && th > 0 {
+					threshold = th
+				}
+				if mq, ok := p["withdraw_quorum_min_usd"].(string); ok {
+					if mqDec, err := decimal.NewFromString(mq); err == nil {
+						minQuorumUSD = mqDec
+					}
+				}
+			}
 
 			appID := uuid.NewString()
+			initialSigs := []map[string]any{
+				{"email": "operator@foundereum.org", "at": time.Now().Format(time.RFC3339)},
+			}
+
+			payloadMap := map[string]any{
+				"to_account":  req.ToAccount,
+				"amount_usdc": req.AmountUSDC,
+			}
+
+			// If amount is strictly under quorum threshold AND threshold is 1, execute immediately
+			if wAmt.LessThan(minQuorumUSD) && threshold <= 1 {
+				treasuryW["usdc"] = tUSDC.Sub(wAmt).StringFixed(6)
+				resultTxID := fmt.Sprintf("%s@withdraw_%s", platformAccount, appID[:8])
+				app := map[string]any{
+					"id":               appID,
+					"project_id":       id,
+					"type":             "withdraw",
+					"payload":          payloadMap,
+					"threshold":        threshold,
+					"signatures":       initialSigs,
+					"status":           "executed",
+					"result_tx_id":     resultTxID,
+					"hashscan_url":     fmt.Sprintf("https://hashscan.io/%s/transaction/%s", cfg.HederaNetwork, resultTxID),
+					"created_by":       "operator@foundereum.org",
+					"expires_at":       time.Now().Add(24 * time.Hour).Format(time.RFC3339),
+				}
+				memStore.approvals[id] = append(memStore.approvals[id], app)
+				if rdb != nil {
+					msg, _ := json.Marshal(map[string]any{
+						"type":       "wallet.balance",
+						"project_id": id,
+						"action":     "withdraw",
+					})
+					_ = rdb.Publish(r.Context(), "events:project:"+id, msg).Err()
+				}
+				httpx.JSON(w, http.StatusOK, app)
+				return
+			}
+
+			// Requires quorum approval
 			app := map[string]any{
 				"id":         appID,
 				"project_id": id,
 				"type":       "withdraw",
-				"payload":    req,
-				"threshold":  2,
-				"signatures": []map[string]any{
-					{"email": "operator@foundereum.org", "at": time.Now().Format(time.RFC3339)},
-				},
+				"payload":    payloadMap,
+				"threshold":  threshold,
+				"signatures": initialSigs,
 				"status":     "pending",
 				"created_by": "operator@foundereum.org",
 				"expires_at": time.Now().Add(24 * time.Hour).Format(time.RFC3339),
 			}
-
-			memStore.mu.Lock()
 			memStore.approvals[id] = append(memStore.approvals[id], app)
-			memStore.mu.Unlock()
 
 			httpx.JSON(w, http.StatusCreated, app)
 		})
 
 		pr.Post("/v1/approvals/{id}/approve", func(w http.ResponseWriter, r *http.Request) {
 			id := chi.URLParam(r, "id")
-			resultTxID := fmt.Sprintf("%s@quorum_withdraw_executed", platformAccount)
+			var req struct {
+				Signature string `json:"signature"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&req)
+
+			memStore.mu.Lock()
+			defer memStore.mu.Unlock()
+
+			var targetApp map[string]any
+			var targetProjID string
+			for projID, apps := range memStore.approvals {
+				for _, app := range apps {
+					if app["id"] == id {
+						targetApp = app
+						targetProjID = projID
+						break
+					}
+				}
+				if targetApp != nil {
+					break
+				}
+			}
+
+			if targetApp == nil {
+				httpx.Err(w, http.StatusNotFound, "NOT_FOUND", "approval request not found")
+				return
+			}
+
+			status, _ := targetApp["status"].(string)
+			if status != "pending" {
+				httpx.Err(w, http.StatusBadRequest, "ALREADY_PROCESSED", fmt.Sprintf("approval is already %s", status))
+				return
+			}
+
+			sigs, _ := targetApp["signatures"].([]map[string]any)
+			sigs = append(sigs, map[string]any{
+				"email":     "approver-2@foundereum.org",
+				"signature": req.Signature,
+				"at":        time.Now().Format(time.RFC3339),
+			})
+			targetApp["signatures"] = sigs
+
+			threshold := 2
+			if th, ok := targetApp["threshold"].(int); ok && th > 0 {
+				threshold = th
+			}
+
+			resultTxID := ""
+			if len(sigs) >= threshold {
+				targetApp["status"] = "executed"
+				resultTxID = fmt.Sprintf("%s@quorum_withdraw_%s", platformAccount, id[:8])
+				targetApp["result_tx_id"] = resultTxID
+				targetApp["hashscan_url"] = fmt.Sprintf("https://hashscan.io/%s/transaction/%s", cfg.HederaNetwork, resultTxID)
+
+				// Deduct withdrawal amount from treasury wallet
+				payloadBytes, _ := json.Marshal(targetApp["payload"])
+				var pMap map[string]any
+				_ = json.Unmarshal(payloadBytes, &pMap)
+				amtStr := fmt.Sprintf("%v", pMap["amount_usdc"])
+				if wAmt, err := decimal.NewFromString(amtStr); err == nil && wAmt.GreaterThan(decimal.Zero) {
+					for _, wlt := range memStore.wallets[targetProjID] {
+						if wlt["kind"] == "treasury" {
+							tUSDC, _ := decimal.NewFromString(fmt.Sprintf("%v", wlt["usdc"]))
+							wlt["usdc"] = tUSDC.Sub(wAmt).StringFixed(6)
+							break
+						}
+					}
+				}
+
+				if rdb != nil {
+					msg, _ := json.Marshal(map[string]any{
+						"type":       "wallet.balance",
+						"project_id": targetProjID,
+						"action":     "withdraw_settled",
+					})
+					_ = rdb.Publish(r.Context(), "events:project:"+targetProjID, msg).Err()
+				}
+			}
+
 			httpx.JSON(w, http.StatusOK, map[string]any{
 				"id":               id,
-				"status":           "executed",
-				"signatures_count": 2,
+				"status":           targetApp["status"],
+				"signatures_count": len(sigs),
+				"threshold":        threshold,
 				"result_tx_id":     resultTxID,
-				"hashscan_url":     fmt.Sprintf("https://hashscan.io/%s/transaction/%s", cfg.HederaNetwork, resultTxID),
+				"hashscan_url":     targetApp["hashscan_url"],
+			})
+		})
+
+		pr.Post("/v1/approvals/{id}/reject", func(w http.ResponseWriter, r *http.Request) {
+			id := chi.URLParam(r, "id")
+			memStore.mu.Lock()
+			defer memStore.mu.Unlock()
+
+			var targetApp map[string]any
+			for _, apps := range memStore.approvals {
+				for _, app := range apps {
+					if app["id"] == id {
+						targetApp = app
+						break
+					}
+				}
+				if targetApp != nil {
+					break
+				}
+			}
+
+			if targetApp == nil {
+				httpx.Err(w, http.StatusNotFound, "NOT_FOUND", "approval request not found")
+				return
+			}
+
+			targetApp["status"] = "rejected"
+			httpx.JSON(w, http.StatusOK, map[string]any{
+				"id":     id,
+				"status": "rejected",
 			})
 		})
 
