@@ -27,6 +27,7 @@ func BuildTransfer(client *hedera.Client, agentAccount string, platformAccount s
 	}
 
 	tx := hedera.NewTransferTransaction().
+		SetNodeAccountIDs([]hedera.AccountID{{Account: 3}}).
 		AddTokenTransfer(tokID, agentID, -baseUnits).
 		AddTokenTransfer(tokID, platformID, baseUnits).
 		SetTransactionMemo(memo).
@@ -64,11 +65,16 @@ func AttachSignature(frozenBytes []byte, pubKeyBytes []byte, sigBytes []byte) ([
 		}
 	}
 
-	transferTx, ok := tx.(*hedera.TransferTransaction)
-	if !ok {
-		return nil, fmt.Errorf("transaction is not a TransferTransaction")
+	var transferTx *hedera.TransferTransaction
+	switch t := tx.(type) {
+	case *hedera.TransferTransaction:
+		transferTx = t
+	case hedera.TransferTransaction:
+		transferTx = &t
+	default:
+		return nil, fmt.Errorf("transaction is not a TransferTransaction: got %T", tx)
 	}
 
-	transferTx.AddSignature(pubKey, sigBytes)
+	transferTx = transferTx.AddSignature(pubKey, sigBytes)
 	return transferTx.ToBytes()
 }

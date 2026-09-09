@@ -62,7 +62,14 @@ func (s *SelfFacilitator) Settle(ctx context.Context, payload x402.PaymentPayloa
 		if err == nil {
 			tx, err := hedera.TransactionFromBytes(txBytes)
 			if err == nil {
-				if t, ok := tx.(*hedera.TransferTransaction); ok {
+				var t *hedera.TransferTransaction
+				switch tr := tx.(type) {
+				case *hedera.TransferTransaction:
+					t = tr
+				case hedera.TransferTransaction:
+					t = &tr
+				}
+				if t != nil {
 					resp, err := t.Execute(s.client)
 					if err == nil {
 						txID := resp.TransactionID.String()
