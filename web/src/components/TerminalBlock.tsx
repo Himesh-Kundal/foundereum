@@ -34,7 +34,7 @@ export const TerminalBlock = ({ children, className = '' }: TerminalBlockProps) 
   };
 
   return (
-    <div className={`relative bg-ink text-[#E8E4DA] p-4 font-mono text-[13px] border border-ink rounded-none overflow-x-auto ${className}`}>
+    <div className={`relative bg-[#14161D] text-[#E8E4DA] p-4 font-mono text-[13px] border border-line rounded-none overflow-x-auto ${className}`}>
       <button 
         onClick={handleCopy}
         className="absolute top-4 right-4 text-[#E8E4DA] hover:text-paper hover:opacity-80 transition-opacity cursor-pointer bg-transparent border-none p-1"

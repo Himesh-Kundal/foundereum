@@ -1,6 +1,7 @@
 import { Cell } from '../components/Cell';
 import { BlockButton, PillButton } from '../components/Buttons';
 import { StatusPill } from '../components/Pills';
+import { ThemeToggle } from '../components/ThemeToggle';
 import type { ProjectSummary } from '../types';
 
 export interface ProjectsPageProps {
@@ -31,6 +32,7 @@ export function ProjectsPage({
           <h1 className="font-mono text-xl uppercase font-bold">ALL PROJECTS ({projects.length})</h1>
         </div>
         <div className="flex items-center gap-3">
+          <ThemeToggle />
           <BlockButton onClick={onOpenNewProject}>+ NEW PROJECT</BlockButton>
           <PillButton onClick={onSignOut}>SIGN OUT</PillButton>
         </div>

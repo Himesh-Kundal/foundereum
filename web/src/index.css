@@ -1,15 +1,43 @@
 @import 'tailwindcss';
 
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --theme-paper: #F4F1E9;
+  --theme-paper2: #EDE9DE;
+  --theme-ink: #16181D;
+  --theme-ink-mut: #6B6E76;
+  --theme-line: #16181D;
+  --theme-line-soft: #D9D4C7;
+  --theme-forge: #F05423;
+  --theme-ok: #1E7F4F;
+  --theme-err: #C6402E;
+  --theme-bracket: #16181D;
+}
+
+.dark, [data-theme="dark"] {
+  --theme-paper: #0C0E12;
+  --theme-paper2: #141820;
+  --theme-ink: #EDE8DF;
+  --theme-ink-mut: #8E94A0;
+  --theme-line: #2A303C;
+  --theme-line-soft: #1B2028;
+  --theme-forge: #FF5E2B;
+  --theme-ok: #27AE60;
+  --theme-err: #E04738;
+  --theme-bracket: #5C6477;
+}
+
 @theme {
-  --color-paper: #F4F1E9;
-  --color-paper2: #EDE9DE;
-  --color-ink: #16181D;
-  --color-ink-mut: #6B6E76;
-  --color-line: #16181D;
-  --color-line-soft: #D9D4C7;
-  --color-forge: #F05423;
-  --color-ok: #1E7F4F;
-  --color-err: #C6402E;
+  --color-paper: var(--theme-paper);
+  --color-paper2: var(--theme-paper2);
+  --color-ink: var(--theme-ink);
+  --color-ink-mut: var(--theme-ink-mut);
+  --color-line: var(--theme-line);
+  --color-line-soft: var(--theme-line-soft);
+  --color-forge: var(--theme-forge);
+  --color-ok: var(--theme-ok);
+  --color-err: var(--theme-err);
   --font-display: 'Archivo Black', sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
 }
@@ -22,6 +50,17 @@ body {
 
 * {
   border-color: var(--color-line);
+}
+
+/* In dark mode, ensure elements explicitly styled with border-ink adapt cleanly to architectural lines */
+.dark .border-ink {
+  border-color: var(--color-line);
+}
+
+/* Ensure backdrop overlays darken cleanly in dark mode */
+.dark .bg-ink\/50,
+.dark .bg-ink\/60 {
+  background-color: rgba(0, 0, 0, 0.75);
 }
 
 .dotted {
@@ -47,20 +86,20 @@ body {
 .cell-brackets::before {
   top: -1px;
   left: -1px;
-  border-top: 2px solid var(--color-ink);
-  border-left: 2px solid var(--color-ink);
+  border-top: 2px solid var(--theme-bracket);
+  border-left: 2px solid var(--theme-bracket);
 }
 
 .cell-brackets::after {
   bottom: -1px;
   right: -1px;
-  border-bottom: 2px solid var(--color-ink);
-  border-right: 2px solid var(--color-ink);
+  border-bottom: 2px solid var(--theme-bracket);
+  border-right: 2px solid var(--theme-bracket);
 }
 
 .cell-brackets:hover::before,
 .cell-brackets:hover::after {
-  border-color: var(--color-forge);
+  border-color: var(--color-forge) !important;
 }
 
 @keyframes marquee {

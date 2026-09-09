@@ -95,7 +95,7 @@ export const CallRow = ({
             {/* Arguments */}
             <div className="flex flex-col gap-1">
               <span className="font-bold text-ink-mut uppercase">Payload Arguments:</span>
-              <pre className="bg-ink text-paper p-3 overflow-x-auto text-[11px] leading-relaxed">
+              <pre className="bg-[#14161D] text-[#E8E4DA] p-3 overflow-x-auto text-[11px] leading-relaxed border border-line">
                 <code>{JSON.stringify(displayArgs, null, 2)}</code>
               </pre>
             </div>

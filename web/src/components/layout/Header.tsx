@@ -1,5 +1,6 @@
 import { PillButton } from '../Buttons';
 import { SpendMeter } from '../SpendMeter';
+import { ThemeToggle } from '../ThemeToggle';
 import type { ProjectSummary, UserSession } from '../../types';
 
 export interface HeaderProps {
@@ -107,6 +108,8 @@ export function Header({
             </button>
           </div>
         )}
+
+        <ThemeToggle />
 
         <PillButton onClick={onSignOut} className="hover:border-err hover:text-err">
           SIGN OUT

@@ -1,4 +1,5 @@
 import type { ServiceTool } from '../api';
+import { ThemeToggle } from './ThemeToggle';
 
 export interface LandingProps {
   onLaunch?: () => void;
@@ -123,6 +124,8 @@ export function Landing({
               Sign Out
             </button>
           )}
+
+          <ThemeToggle compact className="hidden sm:flex" />
 
           <button 
             type="button"
@@ -255,7 +258,7 @@ export function Landing({
                 No API keys to meter. No subscriptions to manage. The HTTP 402 status code, an HTS transfer, and the Blocky402 facilitator paying the gas. Your agent never touches a private key.
               </p>
             </div>
-            <div className="bg-ink text-paper p-8 overflow-x-auto text-[13px] leading-relaxed">
+            <div className="bg-[#14161D] text-[#E8E4DA] p-8 overflow-x-auto text-[13px] leading-relaxed border-t md:border-t-0 md:border-l border-line">
 <pre><code>{`POST /v1/tools/swap_tokens        → 402 payment required
   amount: 7500 (0.0.429274 USDC)
   payTo:  0.0.5551234
@@ -287,7 +290,7 @@ POST /v1/tools/swap_tokens        → 200 ok
                 </div>
               ))}
             </div>
-            <div className="bg-ink text-paper p-8 overflow-x-auto text-[13px] leading-relaxed">
+            <div className="bg-[#14161D] text-[#E8E4DA] p-8 overflow-x-auto text-[13px] leading-relaxed border-t md:border-t-0 md:border-l border-line">
 <pre><code>{`{
   "max_daily_usd": "25.00",
   "max_per_call_usd": "1.00",

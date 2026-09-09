@@ -1,5 +1,6 @@
 import { BlockButton, PillButton } from '../components/Buttons';
 import { PricePill } from '../components/Pills';
+import { ThemeToggle } from '../components/ThemeToggle';
 import type { ServiceTool, UserSession } from '../types';
 
 export interface ServicesPageProps {
@@ -31,6 +32,7 @@ export function ServicesPage({
         </div>
         <div className="flex items-center gap-3">
           <span className="font-mono text-xs text-ink-mut hidden sm:block">Machine-readable: GET /services</span>
+          <ThemeToggle />
           <BlockButton onClick={onLaunchApp}>LAUNCH APP</BlockButton>
           {user && <PillButton onClick={onSignOut}>SIGN OUT</PillButton>}
         </div>

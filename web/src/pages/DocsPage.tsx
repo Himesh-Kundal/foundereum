@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { BlockButton, PillButton } from '../components/Buttons';
+import { ThemeToggle } from '../components/ThemeToggle';
 import type { UserSession } from '../types';
 import { DocsOverview } from './docs/DocsOverview';
 import { DocsX402 } from './docs/DocsX402';
@@ -78,6 +79,7 @@ export function DocsPage({
           >
             GitHub Docs ↗
           </a>
+          <ThemeToggle />
           <BlockButton onClick={onLaunchApp}>LAUNCH APP</BlockButton>
           {user && <PillButton onClick={onSignOut}>SIGN OUT</PillButton>}
         </div>
