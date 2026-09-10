@@ -1,6 +1,6 @@
 # Foundereum Production — Caddy Reverse Proxy
-# Domain: foundereum.com
-# HTTPS terminated by Cloudflare (Full Strict mode)
+# Supports both foundereum.org and foundereum.com
+# HTTPS terminated by Cloudflare
 # Caddy listens on HTTP :80 only — Cloudflare connects to origin on port 80
 
 {
@@ -8,42 +8,48 @@
 }
 
 :80 {
-    # Health check endpoint for load balancer / monitoring
+    # Health check endpoint
     handle /healthz {
         respond "OK" 200
     }
 
-    # Frontend — app.foundereum.com
-    @app host app.foundereum.com
+    # Frontend — app.foundereum.org / app.foundereum.com
+    @app host app.foundereum.org app.foundereum.com
     handle @app {
         reverse_proxy web:80
     }
 
-    # REST API — api.foundereum.com
-    @api host api.foundereum.com
+    # REST API — api.foundereum.org / api.foundereum.com
+    @api host api.foundereum.org api.foundereum.com
     handle @api {
         reverse_proxy api:8080
     }
 
-    # x402 Gateway — gw.foundereum.com
-    @gw host gw.foundereum.com
+    # x402 Gateway — gw.foundereum.org / gw.foundereum.com
+    @gw host gw.foundereum.org gw.foundereum.com
     handle @gw {
         reverse_proxy gateway:8081
     }
 
-    # MCP Server — mcp.foundereum.com
-    @mcp host mcp.foundereum.com
+    # MCP Server — mcp.foundereum.org / mcp.foundereum.com
+    @mcp host mcp.foundereum.org mcp.foundereum.com
     handle @mcp {
         reverse_proxy mcp:8082
     }
 
-    # Root domain — redirect to app
-    @root host foundereum.com www.foundereum.com
-    handle @root {
+    # Root domain redirect for .org
+    @root_org host foundereum.org www.foundereum.org
+    handle @root_org {
+        redir https://app.foundereum.org{uri} permanent
+    }
+
+    # Root domain redirect for .com
+    @root_com host foundereum.com www.foundereum.com
+    handle @root_com {
         redir https://app.foundereum.com{uri} permanent
     }
 
-    # Fallback — 404
+    # Fallback
     handle {
         respond "Not Found" 404
     }
