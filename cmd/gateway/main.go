@@ -14,6 +14,7 @@ import (
 
 	"github.com/foundereum/foundereum/internal/config"
 	gen "github.com/foundereum/foundereum/internal/db/gen"
+	"github.com/foundereum/foundereum/internal/hcs"
 	"github.com/foundereum/foundereum/internal/httpx"
 	"github.com/foundereum/foundereum/internal/ledger"
 	"github.com/foundereum/foundereum/internal/policy"
@@ -76,6 +77,7 @@ func main() {
 	default:
 		facilitator = x402.NewMockFacilitator(cfg.HederaPlatformAccount)
 	}
+	hcsPub := hcs.NewPublisher(cfg)
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -467,6 +469,34 @@ end
 			_ = rdb.Publish(r.Context(), "events:calls", evBytes).Err()
 			_ = rdb.Publish(r.Context(), "events:project:"+projID.String(), evBytes).Err()
 		}
+
+		// Asynchronously publish audit message to Hedera HCS topic
+		go func(pID uuid.UUID, cID string, tName string, txID string, amountStr string, usdStr string, rawA []byte) {
+			topicID := cfg.HederaAuditTopicID
+			if topicID == "" {
+				topicID = "0.0.10442234"
+			}
+			argsHash := sha256.Sum256(rawA)
+			auditMsg := hcs.AuditMessage{
+				Version:   1,
+				ProjectID: pID.String(),
+				CallID:    cID,
+				Tool:      tName,
+				Payer:     cfg.HederaPlatformAccount,
+				Asset:     "USDC",
+				Amount:    amountStr,
+				USD:       usdStr,
+				HederaTx:  txID,
+				ArgsHash:  hex.EncodeToString(argsHash[:]),
+				Timestamp: time.Now().UTC(),
+			}
+			seq, ts, err := hcsPub.Publish(context.Background(), topicID, auditMsg)
+			if err != nil {
+				logger.Warn("failed to submit hcs audit message", "err", err)
+				return
+			}
+			logger.Info("hcs audit message published live to hedera", "topic_id", topicID, "seq", seq, "ts", ts)
+		}(projID, callIDStr, toolName, settleRes.TxID, settleRes.Amount.String(), actUSD.String(), rawArgs)
 
 		respData := map[string]any{
 			"result":  out.Result,

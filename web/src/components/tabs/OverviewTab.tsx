@@ -72,7 +72,7 @@ export function OverviewTab({
             </div>
             <div className="flex flex-col gap-1">
               <span className="text-xs font-mono uppercase text-ink-mut font-bold">SETTLEMENT FACILITATOR</span>
-              <CopyField value={treasuryWallet.hedera_account_id !== '—' ? treasuryWallet.hedera_account_id : (currentProject?.hcs_topic_id || 'Pending')} />
+              <CopyField value={treasuryWallet.hedera_account_id !== '—' ? treasuryWallet.hedera_account_id : '0.0.10413602'} />
             </div>
           </div>
         </Cell>

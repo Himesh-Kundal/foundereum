@@ -109,7 +109,7 @@ export function DashboardPage({
   const treasuryWallet: Wallet = wallets.find(w => w.kind === 'treasury') || {
     id: '',
     kind: 'treasury',
-    hedera_account_id: currentProject?.hcs_topic_id || '—',
+    hedera_account_id: '—',
     evm_address: '—',
     usdc: '0.000000',
     hbar: '0.000000',
@@ -120,7 +120,7 @@ export function DashboardPage({
   const agentWallet: Wallet = wallets.find(w => w.kind === 'agent') || {
     id: '',
     kind: 'agent',
-    hedera_account_id: currentProject?.hcs_topic_id || '—',
+    hedera_account_id: '—',
     evm_address: '—',
     usdc: '0.000000',
     hbar: '0.000000',

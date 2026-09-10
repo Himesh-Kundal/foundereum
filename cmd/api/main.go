@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -121,7 +122,11 @@ func main() {
 
 	platformAccount := cfg.HederaPlatformAccount
 	if platformAccount == "" {
-		platformAccount = "0.0.PLATFORM"
+		platformAccount = "0.0.10413602"
+	}
+	auditTopicID := cfg.HederaAuditTopicID
+	if auditTopicID == "" {
+		auditTopicID = "0.0.10442234"
 	}
 
 	demoProjID := "11111111-1111-1111-1111-111111111111"
@@ -136,7 +141,7 @@ func main() {
 		"name":                    "market-scout",
 		"slug":                    "market-scout",
 		"status":                  "active",
-		"hcs_topic_id":            platformAccount,
+		"hcs_topic_id":            auditTopicID,
 		"quorum_threshold":        2,
 		"withdraw_quorum_min_usd": "100.0000000000",
 		"created_at":              time.Now().Format(time.RFC3339),
@@ -413,7 +418,7 @@ func main() {
 					"name":                    "market-scout",
 					"slug":                    "market-scout",
 					"status":                  "active",
-					"hcs_topic_id":            platformAccount,
+					"hcs_topic_id":            auditTopicID,
 					"quorum_threshold":        2,
 					"withdraw_quorum_min_usd": "100.0000000000",
 					"created_at":              time.Now().Format(time.RFC3339),
@@ -530,7 +535,7 @@ func main() {
 				"name":                    req.Name,
 				"slug":                    req.Slug,
 				"status":                  "active",
-				"hcs_topic_id":            platformAccount,
+				"hcs_topic_id":            auditTopicID,
 				"quorum_threshold":        req.Quorum.Threshold,
 				"withdraw_quorum_min_usd": "100.0000000000",
 				"created_at":              time.Now().Format(time.RFC3339),
@@ -688,8 +693,8 @@ func main() {
 				}
 			}
 
-			hcsTopic := platformAccount
-			if h, ok := p["hcs_topic_id"].(string); ok && h != "" {
+			hcsTopic := auditTopicID
+			if h, ok := p["hcs_topic_id"].(string); ok && h != "" && h != platformAccount {
 				hcsTopic = h
 			}
 
@@ -1279,12 +1284,17 @@ func main() {
 				httpx.Err(w, http.StatusNotFound, "NOT_FOUND", "project not found")
 				return
 			}
-			topicID := platformAccount
+			topicID := auditTopicID
+			if p, ok := memStore.projects[id]; ok {
+				if h, ok := p["hcs_topic_id"].(string); ok && h != "" && h != platformAccount {
+					topicID = h
+				}
+			}
 
 			if queries != nil {
 				pUUID, err := uuid.Parse(id)
 				if err == nil {
-					if proj, err := queries.GetProject(r.Context(), toPgUUID(pUUID)); err == nil && proj.HcsTopicID.Valid {
+					if proj, err := queries.GetProject(r.Context(), toPgUUID(pUUID)); err == nil && proj.HcsTopicID.Valid && proj.HcsTopicID.String != "" && proj.HcsTopicID.String != platformAccount {
 						topicID = proj.HcsTopicID.String
 					}
 				}
@@ -1311,6 +1321,52 @@ func main() {
 									"tx_id":  p.HederaTxID.String,
 								})
 							}
+						}
+					}
+				}
+			}
+
+			// If no local payments found yet, pull live consensus messages directly from Hedera mirror node
+			if len(msgs) == 0 {
+				mirrorURL := fmt.Sprintf("https://testnet.mirrornode.hedera.com/api/v1/topics/%s/messages?limit=25&order=desc", topicID)
+				mirrorReq, _ := http.NewRequestWithContext(r.Context(), "GET", mirrorURL, nil)
+				if mResp, err := http.DefaultClient.Do(mirrorReq); err == nil {
+					defer mResp.Body.Close()
+					var mData struct {
+						Messages []struct {
+							ConsensusTimestamp string `json:"consensus_timestamp"`
+							Message            string `json:"message"`
+							PayerAccountID     string `json:"payer_account_id"`
+							SequenceNumber     int64  `json:"sequence_number"`
+						} `json:"messages"`
+					}
+					if json.NewDecoder(mResp.Body).Decode(&mData) == nil {
+						for _, m := range mData.Messages {
+							raw, _ := base64.StdEncoding.DecodeString(m.Message)
+							toolName := "audit_trail"
+							usdVal := "0.0001"
+							amtVal := "0.000100"
+							var parsed map[string]any
+							if json.Unmarshal(raw, &parsed) == nil {
+								if t, ok := parsed["tool"].(string); ok && t != "" {
+									toolName = t
+								}
+								if u, ok := parsed["usd"].(string); ok && u != "" {
+									usdVal = u
+								}
+								if a, ok := parsed["amount"].(string); ok && a != "" {
+									amtVal = a
+								}
+							}
+							msgs = append(msgs, map[string]any{
+								"seq":    m.SequenceNumber,
+								"ts":     m.ConsensusTimestamp,
+								"tool":   toolName,
+								"amount": amtVal,
+								"usd":    usdVal,
+								"payer":  m.PayerAccountID,
+								"tx_id":  fmt.Sprintf("%s@%s", m.PayerAccountID, m.ConsensusTimestamp),
+							})
 						}
 					}
 				}
