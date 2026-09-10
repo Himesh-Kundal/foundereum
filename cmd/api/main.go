@@ -183,32 +183,46 @@ func main() {
 	}
 
 	// Seed database if connected
-	if queries != nil {
+	if queries != nil && pgPool != nil {
 		demoOrgUUID, _ := uuid.Parse(demoOrgID)
 		demoUserUUID, _ := uuid.Parse(demoUserID)
 		demoProjUUID, _ := uuid.Parse(demoProjID)
+		treasuryUUID, _ := uuid.Parse("22222222-2222-2222-2222-222222222222")
+		agentUUID, _ := uuid.Parse("33333333-3333-3333-3333-333333333333")
 
 		_, _ = queries.UpsertUser(ctx, db.UpsertUserParams{
 			PrivyDid: "did:privy:demo-operator",
 			Email:    pgtype.Text{String: "operator@foundereum.org", Valid: true},
 		})
-		_, _ = queries.CreateOrg(ctx, "Acme Ventures")
+		_, _ = pgPool.Exec(ctx, "INSERT INTO orgs (id, name) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING", demoOrgUUID, "Acme Ventures")
 
-		// Create demo project if not exists
-		_, err := queries.GetProject(ctx, toPgUUID(demoProjUUID))
-		if err != nil {
-			minUSD := ledger.ToPgNumeric(decimal.RequireFromString("100"))
-			_, _ = queries.CreateProject(ctx, db.CreateProjectParams{
-				OrgID:                toPgUUID(demoOrgUUID),
-				Slug:                 "market-scout",
-				Name:                 "market-scout",
-				Status:               "active",
-				HcsTopicID:           pgtype.Text{String: platformAccount, Valid: true},
-				QuorumThreshold:      2,
-				WithdrawQuorumMinUsd: minUSD,
-			})
-			_ = demoUserUUID
-		}
+		minUSD := ledger.ToPgNumeric(decimal.RequireFromString("100"))
+		_, _ = pgPool.Exec(ctx, `
+			INSERT INTO projects (id, org_id, slug, name, status, hcs_topic_id, quorum_threshold, withdraw_quorum_min_usd)
+			VALUES ($1, $2, 'market-scout', 'market-scout', 'active', $3, 2, $4)
+			ON CONFLICT (id) DO UPDATE SET hcs_topic_id = EXCLUDED.hcs_topic_id
+		`, demoProjUUID, demoOrgUUID, auditTopicID, minUSD)
+
+		_, _ = pgPool.Exec(ctx, `
+			INSERT INTO wallets (id, project_id, kind, custody, privy_wallet_id, evm_address, hedera_account_id, status, usdc_balance, hbar_balance)
+			VALUES ($1, $2, 'treasury', 'privy', 'privy_w_treasury', '0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18', $3, 'ready', 150000000, 5000000000)
+			ON CONFLICT (id) DO NOTHING
+		`, treasuryUUID, demoProjUUID, platformAccount)
+
+		_, _ = pgPool.Exec(ctx, `
+			INSERT INTO wallets (id, project_id, kind, custody, privy_wallet_id, evm_address, hedera_account_id, status, usdc_balance, hbar_balance)
+			VALUES ($1, $2, 'agent', 'privy', 'privy_w_agent', '0x555555Cc6634C0532925a3b844Bc9e7595f2bD18', $3, 'ready', 25000000, 1000000000)
+			ON CONFLICT (id) DO NOTHING
+		`, agentUUID, demoProjUUID, platformAccount)
+
+		specBytes, _ := json.Marshal(policy.DefaultSpecWithPayTo(platformAccount))
+		_, _ = pgPool.Exec(ctx, `
+			INSERT INTO policies (project_id, spec, privy_policy_id, version)
+			VALUES ($1, $2, 'privy_pol_mock_market_scout', 1)
+			ON CONFLICT (project_id) DO NOTHING
+		`, demoProjUUID, specBytes)
+
+		_ = demoUserUUID
 	}
 
 	r := chi.NewRouter()
@@ -716,6 +730,37 @@ func main() {
 				httpx.Err(w, http.StatusNotFound, "NOT_FOUND", "project not found")
 				return
 			}
+			if queries != nil {
+				if pUUID, err := uuid.Parse(id); err == nil {
+					dbWlts, err := queries.GetWalletsByProject(r.Context(), toPgUUID(pUUID))
+					if err == nil && len(dbWlts) > 0 {
+						var resW []map[string]any
+						for _, w := range dbWlts {
+							usdcDec := decimal.NewFromBigInt(w.UsdcBalance.Int, -6)
+							hbarDec := decimal.NewFromBigInt(w.HbarBalance.Int, -8)
+							hAccount := platformAccount
+							if w.HederaAccountID.Valid && w.HederaAccountID.String != "" {
+								hAccount = w.HederaAccountID.String
+							}
+							resW = append(resW, map[string]any{
+								"id":                fromPgUUID(w.ID),
+								"project_id":        id,
+								"kind":              w.Kind,
+								"custody":           w.Custody,
+								"privy_wallet_id":   w.PrivyWalletID.String,
+								"evm_address":       w.EvmAddress,
+								"hedera_account_id": hAccount,
+								"usdc":              usdcDec.StringFixed(6),
+								"hbar":              hbarDec.StringFixed(6),
+								"status":            w.Status,
+								"hashscan_url":      fmt.Sprintf("https://hashscan.io/%s/account/%s", cfg.HederaNetwork, hAccount),
+							})
+						}
+						httpx.JSON(w, http.StatusOK, resW)
+						return
+					}
+				}
+			}
 			memStore.mu.RLock()
 			wlts := memStore.wallets[id]
 			memStore.mu.RUnlock()
@@ -954,20 +999,46 @@ func main() {
 				httpx.Err(w, http.StatusNotFound, "NOT_FOUND", "project not found")
 				return
 			}
-			memStore.mu.RLock()
-			rawKeys := memStore.keys[id]
-			memStore.mu.RUnlock()
-
-			// Defense-in-depth: Never return the secret key
-			safeKeys := make([]map[string]any, 0, len(rawKeys))
-			for _, rk := range rawKeys {
-				sk := make(map[string]any)
-				for kf, vf := range rk {
-					if kf != "key" {
-						sk[kf] = vf
+			var safeKeys []map[string]any
+			if queries != nil {
+				if pUUID, err := uuid.Parse(id); err == nil {
+					dbKeys, err := queries.GetAPIKeysByProject(r.Context(), toPgUUID(pUUID))
+					if err == nil {
+						for _, k := range dbKeys {
+							lastUsed := ""
+							if k.LastUsedAt.Valid {
+								lastUsed = k.LastUsedAt.Time.Format(time.RFC3339)
+							}
+							safeKeys = append(safeKeys, map[string]any{
+								"id":           fromPgUUID(k.ID),
+								"project_id":   id,
+								"name":         k.Name,
+								"prefix":       k.Prefix,
+								"status":       k.Status,
+								"carry_usd":    ledger.FromPgNumeric(k.CarryUsd).StringFixed(6),
+								"last_used_at": lastUsed,
+								"created_at":   k.CreatedAt.Time.Format(time.RFC3339),
+							})
+						}
 					}
 				}
-				safeKeys = append(safeKeys, sk)
+			}
+			if len(safeKeys) == 0 {
+				memStore.mu.RLock()
+				rawKeys := memStore.keys[id]
+				memStore.mu.RUnlock()
+				for _, rk := range rawKeys {
+					sk := make(map[string]any)
+					for kf, vf := range rk {
+						if kf != "key" {
+							sk[kf] = vf
+						}
+					}
+					safeKeys = append(safeKeys, sk)
+				}
+			}
+			if safeKeys == nil {
+				safeKeys = []map[string]any{}
 			}
 			httpx.JSON(w, http.StatusOK, safeKeys)
 		})
