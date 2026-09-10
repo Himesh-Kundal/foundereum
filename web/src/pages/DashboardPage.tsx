@@ -223,7 +223,7 @@ export function DashboardPage({
 
         <main className="flex-1 overflow-y-auto p-4 md:p-8">
           <div className="max-w-5xl mx-auto w-full">
-            {isLoading ? (
+            {isLoading && !currentProject ? (
               <div className="p-8 text-center text-ink-mut font-mono">
                 Syncing with Hedera testnet & database...
               </div>

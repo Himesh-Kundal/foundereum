@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Cell } from './Cell';
 import { TerminalBlock } from './TerminalBlock';
 import { BlockButton } from './Buttons';
@@ -33,8 +33,11 @@ export const PolicyEditor = ({ policy, onPushToPrivy, payToAddress: propPayTo }:
   const [defaultAction] = useState<'DENY' | 'ALLOW'>('DENY');
   const [isPushed, setIsPushed] = useState(false);
 
+  const initializedRef = useRef(false);
+
   useEffect(() => {
-    if (policy) {
+    if (policy && !initializedRef.current) {
+      initializedRef.current = true;
       const polAny = policy as Record<string, any>;
       const maxDaily = polAny.max_daily_usd || polAny.velocity?.max_usd_per_24h;
       if (maxDaily !== undefined && maxDaily !== null) {

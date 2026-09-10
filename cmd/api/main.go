@@ -772,12 +772,44 @@ func main() {
 			calls := memStore.calls[id]
 			memStore.mu.RUnlock()
 
-			// Dynamically sum USDC across all wallets of this project
+			// Dynamically load wallets from database if available and sum USDC
 			totalUSDC := decimal.Zero
-			for _, w := range wlt {
-				if usdcStr, ok := w["usdc"].(string); ok {
-					if d, err := decimal.NewFromString(usdcStr); err == nil {
-						totalUSDC = totalUSDC.Add(d)
+			if queries != nil {
+				if pUUID, err := uuid.Parse(id); err == nil {
+					if dbWlts, err := queries.GetWalletsByProject(r.Context(), toPgUUID(pUUID)); err == nil && len(dbWlts) > 0 {
+						wlt = nil
+						totalUSDC = decimal.Zero
+						for _, w := range dbWlts {
+							usdcDec := ledger.FromPgNumeric(w.UsdcBalance).Div(decimal.NewFromInt(1_000_000))
+							hbarDec := ledger.FromPgNumeric(w.HbarBalance).Div(decimal.NewFromInt(100_000_000))
+							totalUSDC = totalUSDC.Add(usdcDec)
+							hAccount := platformAccount
+							if w.HederaAccountID.Valid && w.HederaAccountID.String != "" {
+								hAccount = w.HederaAccountID.String
+							}
+							wlt = append(wlt, map[string]any{
+								"id":                fromPgUUID(w.ID),
+								"project_id":        id,
+								"kind":              w.Kind,
+								"custody":           w.Custody,
+								"privy_wallet_id":   w.PrivyWalletID.String,
+								"evm_address":       w.EvmAddress,
+								"hedera_account_id": hAccount,
+								"usdc":              usdcDec.StringFixed(6),
+								"hbar":              hbarDec.StringFixed(6),
+								"status":            w.Status,
+								"hashscan_url":      fmt.Sprintf("https://hashscan.io/%s/account/%s", cfg.HederaNetwork, hAccount),
+							})
+						}
+					}
+				}
+			}
+			if totalUSDC.IsZero() {
+				for _, w := range wlt {
+					if usdcStr, ok := w["usdc"].(string); ok {
+						if d, err := decimal.NewFromString(usdcStr); err == nil {
+							totalUSDC = totalUSDC.Add(d)
+						}
 					}
 				}
 			}
@@ -811,17 +843,12 @@ func main() {
 				}
 			}
 
-			// Dynamic cap from policy
 			capUSD := "25.00"
 			if pol != nil {
-				if spec, ok := pol["spec"].(policy.Spec); ok && spec.Velocity.MaxUSDPer24h != "" {
-					capUSD = spec.Velocity.MaxUSDPer24h
-				} else if specMap, ok := pol["spec"].(map[string]any); ok {
-					if m, ok := specMap["max_daily_usd"].(string); ok && m != "" {
-						capUSD = m
-					} else if vel, ok := specMap["velocity"].(map[string]any); ok {
-						if m2, ok := vel["max_usd_per_24h"].(string); ok && m2 != "" {
-							capUSD = m2
+				if sp, ok := pol["spec"].(map[string]any); ok {
+					if vel, ok := sp["velocity"].(map[string]any); ok {
+						if m, ok := vel["max_usd_per_24h"].(string); ok && m != "" {
+							capUSD = m
 						}
 					}
 				}
@@ -856,8 +883,8 @@ func main() {
 					if err == nil && len(dbWlts) > 0 {
 						var resW []map[string]any
 						for _, w := range dbWlts {
-							usdcDec := decimal.NewFromBigInt(w.UsdcBalance.Int, -6)
-							hbarDec := decimal.NewFromBigInt(w.HbarBalance.Int, -8)
+							usdcDec := ledger.FromPgNumeric(w.UsdcBalance).Div(decimal.NewFromInt(1_000_000))
+							hbarDec := ledger.FromPgNumeric(w.HbarBalance).Div(decimal.NewFromInt(100_000_000))
 							hAccount := platformAccount
 							if w.HederaAccountID.Valid && w.HederaAccountID.String != "" {
 								hAccount = w.HederaAccountID.String

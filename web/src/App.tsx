@@ -138,9 +138,9 @@ export default function App() {
   };
 
   // 2. Load Project-Specific Data from Backend
-  const loadProjectData = useCallback(async (projId: string) => {
+  const loadProjectData = useCallback(async (projId: string, isInitial: boolean = false) => {
     if (!projId) return;
-    setIsLoading(true);
+    if (isInitial) setIsLoading(true);
     try {
       const [projDetail, walletList, keyList, callList, auditRes, appList, polRes, mcpRes] = await Promise.all([
         api.getProject(projId).catch(() => null),
@@ -161,7 +161,7 @@ export default function App() {
           setSpendLimit(parseFloat(projDetail.cap_usd) || 25.00);
         }
       }
-      if (walletList) setWallets(walletList);
+      if (walletList && walletList.length > 0) setWallets(walletList);
       if (keyList) setKeys(keyList);
       if (callList) setCalls(callList);
       if (auditRes) setAuditLog(auditRes);
@@ -173,19 +173,21 @@ export default function App() {
     } catch (err) {
       console.error('Error loading project data:', err);
     } finally {
-      setIsLoading(false);
+      if (isInitial) setIsLoading(false);
     }
   }, []);
 
   useEffect(() => {
     if (activeProjectId && currentView === 'app') {
-      loadProjectData(activeProjectId);
+      loadProjectData(activeProjectId, false);
+      if (currentTab === 'policy') return;
+
       const pollTimer = setInterval(() => {
-        loadProjectData(activeProjectId);
-      }, 5000);
+        loadProjectData(activeProjectId, false);
+      }, 8000);
       const unsubscribe = api.subscribeEvents(activeProjectId, (event: { type: string; payload: unknown }) => {
         showToast(`Real-time Event: ${event.type}`);
-        loadProjectData(activeProjectId);
+        loadProjectData(activeProjectId, false);
       });
       return () => {
         clearInterval(pollTimer);
