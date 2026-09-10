@@ -75,8 +75,15 @@ if ! docker compose version &>/dev/null; then
     mkdir -p /usr/libexec/docker/cli-plugins /usr/lib/docker/cli-plugins
     ln -sf "${COMPOSE_DIR}/docker-compose" /usr/libexec/docker/cli-plugins/docker-compose
     ln -sf "${COMPOSE_DIR}/docker-compose" /usr/lib/docker/cli-plugins/docker-compose
-fi
 docker compose version || echo "Docker compose installed"
+
+# ── 3b. Goose (DB migrations) ──────────────────────────────
+if ! command -v goose &>/dev/null; then
+    echo "→ Installing Goose migration tool..."
+    curl -fsSL https://github.com/pressly/goose/releases/download/v3.24.1/goose_linux_x86_64 -o /usr/local/bin/goose
+    chmod +x /usr/local/bin/goose
+fi
+goose --version || echo "Goose installed"
 
 # ── 4. Firewall ─────────────────────────────────────────────
 echo "→ Checking firewall..."

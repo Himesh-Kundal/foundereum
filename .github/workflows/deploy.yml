@@ -63,14 +63,25 @@ jobs:
             # Pull new images
             docker compose -f docker-compose.prod.yml pull
 
-            # Run migrations before deploying new code
-            docker compose -f docker-compose.prod.yml run --rm \
-              -e DATABASE_URL="${DATABASE_URL}" \
-              api sh -c "
-                apk add --no-cache go 2>/dev/null || true
-                go install github.com/pressly/goose/v3/cmd/goose@latest 2>/dev/null || true
-                goose -dir /src/internal/db/migrations postgres \"\${DATABASE_URL}\" up
-              " || echo "Migration runner skipped — run manually if needed"
+            # Source production environment
+            if [ -f .env ]; then
+              set -a && source .env && set +a
+            fi
+
+            # Start DB and cache first
+            docker compose -f docker-compose.prod.yml up -d postgres redis
+
+            # Wait for Postgres to be ready
+            echo "Waiting for postgres..."
+            until docker compose -f docker-compose.prod.yml exec -T postgres pg_isready -U "${POSTGRES_USER:-fnd}" >/dev/null 2>&1; do
+              sleep 1
+            done
+
+            # Run migrations
+            if command -v goose &>/dev/null; then
+              echo "Running migrations with goose..."
+              goose -dir internal/db/migrations postgres "postgres://${POSTGRES_USER:-fnd}:${POSTGRES_PASSWORD}@127.0.0.1:5432/${POSTGRES_DB:-foundereum}?sslmode=disable" up
+            fi
 
             # Rolling restart (zero-downtime for stateless services)
             docker compose -f docker-compose.prod.yml up -d --remove-orphans
@@ -97,9 +108,13 @@ jobs:
             docker compose -f docker-compose.prod.yml ps --format "table {{.Name}}\t{{.Status}}"
 
             echo ""
+            echo "=== Caddy Root Health Check ==="
+            curl -sf http://localhost/healthz || echo "⚠ Caddy root not responding"
+
+            echo ""
             echo "=== API Health Check ==="
-            curl -sf http://localhost:8080/healthz || echo "⚠ API not responding"
+            curl -sf -H "Host: api.foundereum.com" http://localhost/healthz || echo "⚠ API not responding"
 
             echo ""
             echo "=== Gateway Health Check ==="
-            curl -sf http://localhost:8081/healthz || echo "⚠ Gateway not responding"
+            curl -sf -H "Host: gw.foundereum.com" http://localhost/healthz || echo "⚠ Gateway not responding"
