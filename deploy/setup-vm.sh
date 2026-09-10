@@ -35,9 +35,7 @@ if command -v apt-get &>/dev/null; then
     apt-get install -y curl git make jq htop unzip fail2ban ufw
 elif command -v dnf &>/dev/null; then
     dnf update -y
-    dnf install -y curl git make jq htop unzip
-    # fail2ban is optional on AL2023
-    dnf install -y fail2ban || echo "  (fail2ban not in repository, skipping)"
+    dnf install -y make jq htop unzip git || true
 fi
 
 # ── 2. Docker ───────────────────────────────────────────────
