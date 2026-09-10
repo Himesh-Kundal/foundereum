@@ -102,19 +102,23 @@ const SessionKey ctxKey = "session_claims"
 
 func (s *Service) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tokenStr := ""
 		authHeader := r.Header.Get("Authorization")
-		if authHeader == "" {
-			http.Error(w, `{"error":{"code":"UNAUTHORIZED","message":"missing authorization header"}}`, http.StatusUnauthorized)
+		if authHeader != "" {
+			parts := strings.SplitN(authHeader, " ", 2)
+			if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") {
+				tokenStr = parts[1]
+			}
+		}
+		if tokenStr == "" {
+			tokenStr = r.URL.Query().Get("token")
+		}
+		if tokenStr == "" {
+			http.Error(w, `{"error":{"code":"UNAUTHORIZED","message":"missing authorization header or token"}}`, http.StatusUnauthorized)
 			return
 		}
 
-		parts := strings.SplitN(authHeader, " ", 2)
-		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
-			http.Error(w, `{"error":{"code":"UNAUTHORIZED","message":"invalid authorization format"}}`, http.StatusUnauthorized)
-			return
-		}
-
-		claims, err := s.VerifyToken(parts[1])
+		claims, err := s.VerifyToken(tokenStr)
 		if err != nil {
 			http.Error(w, `{"error":{"code":"UNAUTHORIZED","message":"invalid token"}}`, http.StatusUnauthorized)
 			return

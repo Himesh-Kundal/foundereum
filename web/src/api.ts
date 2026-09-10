@@ -409,7 +409,10 @@ class ApiClient {
       return () => {};
     }
 
-    const sseUrl = `${API_BASE}/v1/projects/${projectId}/events`;
+    const token = this.token || (typeof localStorage !== 'undefined' ? localStorage.getItem('fnd_jwt') : '');
+    const sseUrl = token
+      ? `${API_BASE}/v1/projects/${projectId}/events?token=${encodeURIComponent(token)}`
+      : `${API_BASE}/v1/projects/${projectId}/events`;
     const es = new EventSource(sseUrl);
 
     es.onmessage = (e) => {
