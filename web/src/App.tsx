@@ -178,15 +178,21 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (activeProjectId) {
+    if (activeProjectId && currentView === 'app') {
       loadProjectData(activeProjectId);
+      const pollTimer = setInterval(() => {
+        loadProjectData(activeProjectId);
+      }, 5000);
       const unsubscribe = api.subscribeEvents(activeProjectId, (event: { type: string; payload: unknown }) => {
         showToast(`Real-time Event: ${event.type}`);
         loadProjectData(activeProjectId);
       });
-      return () => unsubscribe();
+      return () => {
+        clearInterval(pollTimer);
+        unsubscribe();
+      };
     }
-  }, [activeProjectId, loadProjectData]);
+  }, [activeProjectId, currentView, currentTab, loadProjectData]);
 
   // Handle Hash Routing with Route Protection
   useEffect(() => {

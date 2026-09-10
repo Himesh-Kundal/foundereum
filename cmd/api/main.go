@@ -222,6 +222,126 @@ func main() {
 			ON CONFLICT (project_id) DO NOTHING
 		`, demoProjUUID, specBytes)
 
+		// Preload all projects from Postgres into memStore
+		pRows, err := pgPool.Query(ctx, "SELECT id, org_id, slug, name, status, hcs_topic_id, quorum_threshold, withdraw_quorum_min_usd, created_at FROM projects")
+		if err == nil {
+			defer pRows.Close()
+			for pRows.Next() {
+				var pID, oID uuid.UUID
+				var slug, name, status string
+				var hcsTopic pgtype.Text
+				var qTh int16
+				var wMin pgtype.Numeric
+				var createdAt time.Time
+				if err := pRows.Scan(&pID, &oID, &slug, &name, &status, &hcsTopic, &qTh, &wMin, &createdAt); err == nil {
+					pIDStr := pID.String()
+					topic := auditTopicID
+					if hcsTopic.Valid && hcsTopic.String != "" {
+						topic = hcsTopic.String
+					}
+					memStore.projects[pIDStr] = map[string]any{
+						"id":                      pIDStr,
+						"org_id":                  oID.String(),
+						"slug":                    slug,
+						"name":                    name,
+						"status":                  status,
+						"hcs_topic_id":            topic,
+						"quorum_threshold":        int(qTh),
+						"withdraw_quorum_min_usd": ledger.FromPgNumeric(wMin).StringFixed(10),
+						"created_at":              createdAt.Format(time.RFC3339),
+					}
+				}
+			}
+		}
+
+		// Preload wallets from Postgres into memStore
+		wRows, err := pgPool.Query(ctx, "SELECT id, project_id, kind, evm_address, hedera_account_id, status, usdc_balance, hbar_balance FROM wallets")
+		if err == nil {
+			defer wRows.Close()
+			for wRows.Next() {
+				var wID, pID uuid.UUID
+				var kind, evmAddr, status string
+				var hederaAcc pgtype.Text
+				var usdcBal, hbarBal pgtype.Numeric
+				if err := wRows.Scan(&wID, &pID, &kind, &evmAddr, &hederaAcc, &status, &usdcBal, &hbarBal); err == nil {
+					pIDStr := pID.String()
+					hAcc := platformAccount
+					if hederaAcc.Valid && hederaAcc.String != "" {
+						hAcc = hederaAcc.String
+					}
+					usdcDec := ledger.FromPgNumeric(usdcBal).Div(decimal.NewFromInt(1_000_000)).StringFixed(6)
+					hbarDec := ledger.FromPgNumeric(hbarBal).Div(decimal.NewFromInt(100_000_000)).StringFixed(6)
+					wMap := map[string]any{
+						"id":                wID.String(),
+						"kind":              kind,
+						"evm_address":       evmAddr,
+						"hedera_account_id": hAcc,
+						"usdc":              usdcDec,
+						"hbar":              hbarDec,
+						"status":            status,
+						"hashscan_url":      fmt.Sprintf("https://hashscan.io/%s/account/%s", cfg.HederaNetwork, hAcc),
+					}
+					memStore.wallets[pIDStr] = append(memStore.wallets[pIDStr], wMap)
+				}
+			}
+		}
+
+		// Preload policies from Postgres into memStore
+		polRows, err := pgPool.Query(ctx, "SELECT project_id, spec, privy_policy_id, version, pushed_at FROM policies")
+		if err == nil {
+			defer polRows.Close()
+			for polRows.Next() {
+				var pID uuid.UUID
+				var specBytes []byte
+				var privyPolID pgtype.Text
+				var ver int32
+				var pushed pgtype.Timestamptz
+				if err := polRows.Scan(&pID, &specBytes, &privyPolID, &ver, &pushed); err == nil {
+					var specObj map[string]any
+					_ = json.Unmarshal(specBytes, &specObj)
+					pushedStr := time.Now().Format(time.RFC3339)
+					if pushed.Valid {
+						pushedStr = pushed.Time.Format(time.RFC3339)
+					}
+					memStore.policies[pID.String()] = map[string]any{
+						"spec":            specObj,
+						"version":         ver,
+						"privy_policy_id": privyPolID.String,
+						"pushed_at":       pushedStr,
+					}
+				}
+			}
+		}
+
+		// Preload API keys from Postgres into memStore
+		kRows, err := pgPool.Query(ctx, "SELECT id, project_id, name, prefix, status, carry_usd, last_used_at, created_at FROM api_keys")
+		if err == nil {
+			defer kRows.Close()
+			for kRows.Next() {
+				var kID, pID uuid.UUID
+				var name, prefix, status string
+				var carry pgtype.Numeric
+				var lastUsed pgtype.Timestamptz
+				var createdAt time.Time
+				if err := kRows.Scan(&kID, &pID, &name, &prefix, &status, &carry, &lastUsed, &createdAt); err == nil {
+					var lastUsedStr any = nil
+					if lastUsed.Valid {
+						lastUsedStr = lastUsed.Time.Format(time.RFC3339)
+					}
+					kMap := map[string]any{
+						"id":           kID.String(),
+						"name":         name,
+						"prefix":       prefix,
+						"status":       status,
+						"carry_usd":    ledger.FromPgNumeric(carry).StringFixed(10),
+						"last_used_at": lastUsedStr,
+						"created_at":   createdAt.Format(time.RFC3339),
+					}
+					memStore.keys[pID.String()] = append(memStore.keys[pID.String()], kMap)
+				}
+			}
+		}
+
 		_ = demoUserUUID
 	}
 
@@ -332,6 +452,10 @@ func main() {
 				PrivyDid: "did:privy:" + email,
 				Email:    pgtype.Text{String: email, Valid: true},
 			})
+			if pgPool != nil {
+				_, _ = pgPool.Exec(r.Context(), "INSERT INTO orgs (id, name) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING", orgID, orgName)
+				_, _ = pgPool.Exec(r.Context(), "INSERT INTO members (org_id, user_id, email, role, status) VALUES ($1, $2, $3, $4, 'active') ON CONFLICT (org_id, email) DO NOTHING", orgID, userID, email, role)
+			}
 		}
 
 		httpx.JSON(w, http.StatusOK, map[string]any{
@@ -474,15 +598,13 @@ func main() {
 				if queries != nil {
 					pUUID, _ := uuid.Parse(projID)
 					minUSD := ledger.ToPgNumeric(decimal.RequireFromString("100"))
-					_, _ = queries.CreateProject(r.Context(), db.CreateProjectParams{
-						OrgID:                toPgUUID(claims.OrgID),
-						Slug:                 "market-scout",
-						Name:                 "market-scout",
-						Status:               "active",
-						HcsTopicID:           pgtype.Text{String: platformAccount, Valid: true},
-						QuorumThreshold:      2,
-						WithdrawQuorumMinUsd: minUSD,
-					})
+					if pgPool != nil {
+						_, _ = pgPool.Exec(r.Context(), `
+							INSERT INTO projects (id, org_id, slug, name, status, hcs_topic_id, quorum_threshold, withdraw_quorum_min_usd)
+							VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+							ON CONFLICT (id) DO NOTHING
+						`, pUUID, claims.OrgID, "market-scout", "market-scout", "active", auditTopicID, 2, minUSD)
+					}
 					_, _ = queries.CreateWallet(r.Context(), db.CreateWalletParams{
 						ProjectID:       toPgUUID(pUUID),
 						Kind:            "treasury",
@@ -595,15 +717,13 @@ func main() {
 			if queries != nil {
 				pUUID, _ := uuid.Parse(projID)
 				minUSD := ledger.ToPgNumeric(decimal.RequireFromString("100"))
-				_, _ = queries.CreateProject(r.Context(), db.CreateProjectParams{
-					OrgID:                toPgUUID(claims.OrgID),
-					Slug:                 req.Slug,
-					Name:                 req.Name,
-					Status:               "active",
-					HcsTopicID:           pgtype.Text{String: platformAccount, Valid: true},
-					QuorumThreshold:      int16(req.Quorum.Threshold),
-					WithdrawQuorumMinUsd: minUSD,
-				})
+				if pgPool != nil {
+					_, _ = pgPool.Exec(r.Context(), `
+						INSERT INTO projects (id, org_id, slug, name, status, hcs_topic_id, quorum_threshold, withdraw_quorum_min_usd)
+						VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+						ON CONFLICT (id) DO NOTHING
+					`, pUUID, claims.OrgID, req.Slug, req.Name, "active", auditTopicID, int16(req.Quorum.Threshold), minUSD)
+				}
 				_, _ = queries.CreateWallet(r.Context(), db.CreateWalletParams{
 					ProjectID:       toPgUUID(pUUID),
 					Kind:            "treasury",
@@ -1320,7 +1440,19 @@ func main() {
 							if len(c.Args) > 0 {
 								_ = json.Unmarshal(c.Args, &argsMap)
 							}
-							resCalls = append(resCalls, map[string]any{
+							reason := ""
+							if len(c.Error) > 0 {
+								var errObj map[string]any
+								if json.Unmarshal(c.Error, &errObj) == nil {
+									if m, ok := errObj["message"].(string); ok && m != "" {
+										reason = m
+									}
+								}
+								if reason == "" {
+									reason = string(c.Error)
+								}
+							}
+							item := map[string]any{
 								"id":            c.ID.String(),
 								"tool":          c.Tool,
 								"status":        c.Status,
@@ -1331,7 +1463,11 @@ func main() {
 								"started_at":    c.StartedAt.Time.Format(time.RFC3339),
 								"args":          argsMap,
 								"metered_bytes": c.MeteredBytes.Int32,
-							})
+							}
+							if reason != "" {
+								item["reason"] = reason
+							}
+							resCalls = append(resCalls, item)
 						}
 						httpx.JSON(w, http.StatusOK, resCalls)
 						return
@@ -1382,10 +1518,14 @@ func main() {
 					if err == nil {
 						for _, p := range payments {
 							if p.HcsSeq.Valid {
+								toolName := p.Asset
+								if call, err := queries.GetCall(r.Context(), p.CallID); err == nil && call.Tool != "" {
+									toolName = call.Tool
+								}
 								msgs = append(msgs, map[string]any{
 									"seq":    p.HcsSeq.Int64,
 									"ts":     p.SettledAt.Time.Format(time.RFC3339),
-									"tool":   p.Asset,
+									"tool":   toolName,
 									"amount": ledger.FromPgNumeric(p.Amount).StringFixed(6),
 									"usd":    ledger.FromPgNumeric(p.AmountUsd).StringFixed(4),
 									"payer":  platformAccount,
@@ -1464,6 +1604,9 @@ func main() {
 			memStore.mu.RLock()
 			apps := memStore.approvals[id]
 			memStore.mu.RUnlock()
+			if apps == nil {
+				apps = []map[string]any{}
+			}
 			httpx.JSON(w, http.StatusOK, apps)
 		})
 
