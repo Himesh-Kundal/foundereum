@@ -154,6 +154,7 @@ services:
         condition: service_healthy
 
   subgraph-mcp:
+    image: ${IMAGE_PREFIX:-ghcr.io/himesh-kundal/foundereum}-subgraph-mcp:${IMAGE_TAG:-latest}
     build:
       context: ./sidecars/subgraph-mcp
     restart: unless-stopped

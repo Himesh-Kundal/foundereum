@@ -121,6 +121,7 @@ jobs:
           - { name: mcp, dockerfile: deploy/Dockerfile.app, context: "." }
           - { name: worker, dockerfile: deploy/Dockerfile.app, context: "." }
           - { name: web, dockerfile: deploy/Dockerfile.web, context: "." }
+          - { name: subgraph-mcp, dockerfile: sidecars/subgraph-mcp/Dockerfile, context: "sidecars/subgraph-mcp" }
     steps:
       - uses: actions/checkout@v4
 
