@@ -46,7 +46,6 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SSH_PORT || 22 }}
-          script_stop: true
           script: |
             set -euo pipefail
 
@@ -60,8 +59,8 @@ jobs:
             # Log in to GHCR
             echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u "${{ secrets.GHCR_USER }}" --password-stdin
 
-            # Pull new images
-            docker compose -f docker-compose.prod.yml pull
+            # Pull new images (ignore pull failures for services built locally)
+            docker compose -f docker-compose.prod.yml pull --ignore-pull-failures || true
 
             # Source production environment
             if [ -f .env ]; then
