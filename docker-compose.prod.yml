@@ -4,11 +4,8 @@ services:
     restart: unless-stopped
     ports:
       - "80:80"
-      - "443:443"
     volumes:
-      - ./deploy/Caddyfile:/etc/caddy/Caddyfile
-      - caddy_data:/data
-      - caddy_config:/config
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
     depends_on:
       - web
       - api
@@ -33,11 +30,17 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes"]
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
     volumes:
       - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
   api:
+    image: ${IMAGE_PREFIX:-ghcr.io/himesh-kundal/foundereum}-api:${IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: deploy/Dockerfile.app
@@ -45,16 +48,17 @@ services:
         CMD: api
     restart: unless-stopped
     environment:
-      DATABASE_URL: ${DATABASE_URL}
-      REDIS_URL: ${REDIS_URL}
+      DATABASE_URL: postgres://${POSTGRES_USER:-fnd}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-foundereum}?sslmode=disable
+      REDIS_URL: redis://redis:6379
       ENV: production
       LOG_LEVEL: ${LOG_LEVEL:-info}
       PORT_API: 8080
       JWT_SECRET: ${JWT_SECRET}
-      AUTH_DEV_BYPASS: ${AUTH_DEV_BYPASS:-false}
+      AUTH_DEV_BYPASS: "false"
       QUORUM_MODE: ${QUORUM_MODE:-privy}
       PRIVY_APP_ID: ${PRIVY_APP_ID}
       PRIVY_APP_SECRET: ${PRIVY_APP_SECRET}
+      PRIVY_VERIFICATION_KEY: ${PRIVY_VERIFICATION_KEY}
       HEDERA_NETWORK: ${HEDERA_NETWORK:-testnet}
       HEDERA_FAUCET_ACCOUNT: ${HEDERA_FAUCET_ACCOUNT}
       HEDERA_FAUCET_KEY: ${HEDERA_FAUCET_KEY}
@@ -64,15 +68,17 @@ services:
       HEDERA_USDC_TOKEN_ID: ${HEDERA_USDC_TOKEN_ID:-0.0.429274}
       HEDERA_JSON_RPC: ${HEDERA_JSON_RPC:-https://testnet.hashio.io/api}
       HEDERA_EVM_CHAIN_ID: ${HEDERA_EVM_CHAIN_ID:-296}
+      HEDERA_AUDIT_TOPIC_ID: ${HEDERA_AUDIT_TOPIC_ID}
       GRAPH_API_KEY: ${GRAPH_API_KEY}
       SUBGRAPH_MCP_URL: http://subgraph-mcp:7000
     depends_on:
       postgres:
         condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
 
   gateway:
+    image: ${IMAGE_PREFIX:-ghcr.io/himesh-kundal/foundereum}-gateway:${IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: deploy/Dockerfile.app
@@ -80,14 +86,15 @@ services:
         CMD: gateway
     restart: unless-stopped
     environment:
-      DATABASE_URL: ${DATABASE_URL}
-      REDIS_URL: ${REDIS_URL}
+      DATABASE_URL: postgres://${POSTGRES_USER:-fnd}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-foundereum}?sslmode=disable
+      REDIS_URL: redis://redis:6379
       ENV: production
       LOG_LEVEL: ${LOG_LEVEL:-info}
       PORT_GATEWAY: 8081
       PRIVY_APP_ID: ${PRIVY_APP_ID}
       PRIVY_APP_SECRET: ${PRIVY_APP_SECRET}
       PRIVY_AUTH_KEY: ${PRIVY_AUTH_KEY}
+      PRIVY_VERIFICATION_KEY: ${PRIVY_VERIFICATION_KEY}
       WALLET_SIGNER: ${WALLET_SIGNER:-privy}
       FACILITATOR_MODE: ${FACILITATOR_MODE:-blocky}
       BLOCKY402_URL: ${BLOCKY402_URL:-https://facilitator.blocky402.com}
@@ -98,14 +105,16 @@ services:
       HEDERA_USDC_TOKEN_ID: ${HEDERA_USDC_TOKEN_ID:-0.0.429274}
       HEDERA_JSON_RPC: ${HEDERA_JSON_RPC:-https://testnet.hashio.io/api}
       HEDERA_EVM_CHAIN_ID: ${HEDERA_EVM_CHAIN_ID:-296}
+      HEDERA_AUDIT_TOPIC_ID: ${HEDERA_AUDIT_TOPIC_ID}
       GRAPH_API_KEY: ${GRAPH_API_KEY}
       SUBGRAPH_MCP_URL: http://subgraph-mcp:7000
-      MOCK_CHAINS: ${MOCK_CHAINS:-false}
+      MOCK_CHAINS: "false"
     depends_on:
       - api
       - subgraph-mcp
 
   mcp:
+    image: ${IMAGE_PREFIX:-ghcr.io/himesh-kundal/foundereum}-mcp:${IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: deploy/Dockerfile.app
@@ -115,10 +124,12 @@ services:
     environment:
       PORT_MCP: 8082
       PORT_GATEWAY: 8081
+      GATEWAY_URL: http://gateway:8081
     depends_on:
       - gateway
 
   worker:
+    image: ${IMAGE_PREFIX:-ghcr.io/himesh-kundal/foundereum}-worker:${IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: deploy/Dockerfile.app
@@ -126,14 +137,17 @@ services:
         CMD: worker
     restart: unless-stopped
     environment:
-      REDIS_URL: ${REDIS_URL}
+      DATABASE_URL: postgres://${POSTGRES_USER:-fnd}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-foundereum}?sslmode=disable
+      REDIS_URL: redis://redis:6379
       ENV: production
       HEDERA_OPERATOR_ACCOUNT: ${HEDERA_OPERATOR_ACCOUNT}
       HEDERA_OPERATOR_KEY: ${HEDERA_OPERATOR_KEY}
       HEDERA_NETWORK: ${HEDERA_NETWORK:-testnet}
-      MOCK_CHAINS: ${MOCK_CHAINS:-false}
+      HEDERA_AUDIT_TOPIC_ID: ${HEDERA_AUDIT_TOPIC_ID}
+      MOCK_CHAINS: "false"
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
 
   subgraph-mcp:
     build:
@@ -142,18 +156,23 @@ services:
     environment:
       GRAPH_API_KEY: ${GRAPH_API_KEY}
       PORT: 7000
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:7000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   web:
+    image: ${IMAGE_PREFIX:-ghcr.io/himesh-kundal/foundereum}-web:${IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: deploy/Dockerfile.web
+      args:
+        VITE_API_URL: https://api.foundereum.com
+        VITE_PRIVY_APP_ID: ${PRIVY_APP_ID}
     restart: unless-stopped
-    environment:
-      VITE_API_URL: https://api.foundereum.org
-      VITE_PRIVY_APP_ID: ${PRIVY_APP_ID}
 
 volumes:
   pgdata:
   redisdata:
-  caddy_data:
-  caddy_config:

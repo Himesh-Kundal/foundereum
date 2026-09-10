@@ -1,18 +1,50 @@
-# Foundereum Production Caddy Reverse Proxy Configuration
-# Domain: foundereum.org
+# Foundereum Production — Caddy Reverse Proxy
+# Domain: foundereum.com
+# HTTPS terminated by Cloudflare (Full Strict mode)
+# Caddy listens on HTTP :80 only — Cloudflare connects to origin on port 80
 
-app.foundereum.org {
-    reverse_proxy web:80
+{
+    auto_https off
 }
 
-api.foundereum.org {
-    reverse_proxy api:8080
-}
+:80 {
+    # Health check endpoint for load balancer / monitoring
+    handle /healthz {
+        respond "OK" 200
+    }
 
-gw.foundereum.org {
-    reverse_proxy gateway:8081
-}
+    # Frontend — app.foundereum.com
+    @app host app.foundereum.com
+    handle @app {
+        reverse_proxy web:80
+    }
 
-mcp.foundereum.org {
-    reverse_proxy mcp:8082
+    # REST API — api.foundereum.com
+    @api host api.foundereum.com
+    handle @api {
+        reverse_proxy api:8080
+    }
+
+    # x402 Gateway — gw.foundereum.com
+    @gw host gw.foundereum.com
+    handle @gw {
+        reverse_proxy gateway:8081
+    }
+
+    # MCP Server — mcp.foundereum.com
+    @mcp host mcp.foundereum.com
+    handle @mcp {
+        reverse_proxy mcp:8082
+    }
+
+    # Root domain — redirect to app
+    @root host foundereum.com www.foundereum.com
+    handle @root {
+        redir https://app.foundereum.com{uri} permanent
+    }
+
+    # Fallback — 404
+    handle {
+        respond "Not Found" 404
+    }
 }
