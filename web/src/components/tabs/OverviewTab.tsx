@@ -45,8 +45,15 @@ export function OverviewTab({
               mcpServers: {
                 foundereum: {
                   command: "npx",
-                  args: ["-y", "foundereum-mcp", "--url", "http://localhost:8082/mcp"],
-                  env: { FOUNDEREUM_API_KEY: "fnd_sk_live_sample_paste_your_key_here" }
+                  args: [
+                    "-y", 
+                    "foundereum-mcp", 
+                    "--url", 
+                    typeof window !== 'undefined' && window.location.hostname !== 'localhost'
+                      ? `https://mcp.${window.location.hostname.replace(/^app\./, '')}/mcp`
+                      : "https://mcp.foundereum.org/mcp"
+                  ],
+                  env: { FOUNDEREUM_API_KEY: "fnd_sk_live_paste_your_key_here" }
                 }
               }
             }, null, 2)}

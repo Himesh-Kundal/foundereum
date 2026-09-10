@@ -32,6 +32,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 )
@@ -188,6 +189,29 @@ end
 				row, err := queries.GetKeyContext(r.Context(), kh[:])
 				if err == nil {
 					keyCtx = &row
+				}
+			}
+			if keyCtx == nil && rdb != nil {
+				khHex := hex.EncodeToString(kh[:])
+				if val, err := rdb.Get(r.Context(), "key_ctx:"+khHex).Result(); err == nil && val != "" {
+					var rCtx struct {
+						ProjectID       string `json:"project_id"`
+						WalletID        string `json:"wallet_id"`
+						HederaAccountID string `json:"hedera_account_id"`
+						EVMAddress      string `json:"evm_address"`
+						Status          string `json:"status"`
+					}
+					if json.Unmarshal([]byte(val), &rCtx) == nil && (rCtx.Status == "active" || rCtx.Status == "ready") {
+						pUUID, _ := uuid.Parse(rCtx.ProjectID)
+						wUUID, _ := uuid.Parse(rCtx.WalletID)
+						keyCtx = &gen.GetKeyContextRow{
+							ProjectID:       pgtype.UUID{Bytes: pUUID, Valid: true},
+							WalletID:        pgtype.UUID{Bytes: wUUID, Valid: true},
+							HederaAccountID: pgtype.Text{String: rCtx.HederaAccountID, Valid: true},
+							EvmAddress:      rCtx.EVMAddress,
+							ProjectStatus:   "active",
+						}
+					}
 				}
 			}
 		}

@@ -6,17 +6,21 @@ export interface DocsQuickstartProps {
 }
 
 export function DocsQuickstart({ mcpConfigText }: DocsQuickstartProps) {
-  const configSnippet = mcpConfigText || `{
-  "mcpServers": {
-    "foundereum": {
-      "command": "npx",
-      "args": ["-y", "foundereum-mcp", "--url", "http://localhost:8082/mcp"],
-      "env": {
-        "FOUNDEREUM_API_KEY": "fnd_sk_live_your_api_key_here"
+  const defaultMcpUrl = typeof window !== 'undefined' && window.location.hostname !== 'localhost'
+    ? `https://mcp.${window.location.hostname.replace(/^app\./, '')}/mcp`
+    : 'https://mcp.foundereum.org/mcp';
+
+  const configSnippet = mcpConfigText || JSON.stringify({
+    mcpServers: {
+      foundereum: {
+        command: "npx",
+        args: ["-y", "foundereum-mcp", "--url", defaultMcpUrl],
+        env: {
+          FOUNDEREUM_API_KEY: "fnd_sk_live_your_api_key_here"
+        }
       }
     }
-  }
-}`;
+  }, null, 2);
 
   return (
     <div className="flex flex-col gap-8">
@@ -104,7 +108,7 @@ export function DocsQuickstart({ mcpConfigText }: DocsQuickstartProps) {
             <span className="font-bold uppercase text-ink block mb-2">TypeScript / Node.js (Direct Gateway Ingestion)</span>
             <TerminalBlock>{`import axios from 'axios';
 
-const GATEWAY_URL = 'http://localhost:8081';
+const GATEWAY_URL = 'https://gw.foundereum.org';
 const API_KEY = process.env.FOUNDEREUM_API_KEY;
 
 async function executeAgentTool(toolName: string, toolParams: object) {
@@ -148,7 +152,7 @@ async function executeAgentTool(toolName: string, toolParams: object) {
 import uuid
 import requests
 
-GATEWAY_URL = "http://localhost:8081"
+GATEWAY_URL = "https://gw.foundereum.org"
 API_KEY = os.environ.get("FOUNDEREUM_API_KEY")
 
 def call_tool(tool_name: str, payload: dict):

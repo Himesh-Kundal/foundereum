@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -53,6 +54,20 @@ func NewMemoryStore() *MemoryStore {
 		calls:     make(map[string][]map[string]any),
 		members:   make(map[string][]map[string]any),
 	}
+}
+
+func (s *MemoryStore) getProjectForOrg(projectID string, orgID uuid.UUID) (map[string]any, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	p, ok := s.projects[projectID]
+	if !ok {
+		return nil, false
+	}
+	pOrg, _ := p["org_id"].(string)
+	if pOrg != "" && pOrg != orgID.String() {
+		return nil, false
+	}
+	return p, true
 }
 
 func toPgUUID(u uuid.UUID) pgtype.UUID {
@@ -116,6 +131,8 @@ func main() {
 	// Initialize memory store defaults
 	memStore.projects[demoProjID] = map[string]any{
 		"id":                      demoProjID,
+		"org_id":                  demoOrgID,
+		"user_id":                 demoUserID,
 		"name":                    "market-scout",
 		"slug":                    "market-scout",
 		"status":                  "active",
@@ -254,9 +271,6 @@ func main() {
 	})
 
 	r.Post("/v1/auth/session", func(w http.ResponseWriter, r *http.Request) {
-		userID := uuid.New()
-		orgID, _ := uuid.Parse(demoOrgID)
-		
 		var req struct {
 			Email string `json:"email"`
 			Role  string `json:"role"`
@@ -266,15 +280,26 @@ func main() {
 		
 		email := "operator@foundereum.org"
 		if req.Email != "" {
-			email = req.Email
+			email = strings.ToLower(strings.TrimSpace(req.Email))
 		}
 		role := "owner"
 		if req.Role != "" {
 			role = req.Role
 		}
-		orgName := "Acme Ventures"
+		orgName := "Workspace"
 		if req.Org != "" {
 			orgName = req.Org
+		}
+
+		userNamespace := uuid.MustParse("e0f4a240-8f92-491c-b8e7-8b0123456789")
+		var userID, orgID uuid.UUID
+		if email == "operator@foundereum.org" {
+			userID, _ = uuid.Parse(demoUserID)
+			orgID, _ = uuid.Parse(demoOrgID)
+			orgName = "Acme Ventures"
+		} else {
+			userID = uuid.NewSHA1(userNamespace, []byte("user:"+email))
+			orgID = uuid.NewSHA1(userNamespace, []byte("org:"+email))
 		}
 
 		token, err := authSvc.IssueToken(userID, orgID, email, role)
@@ -282,6 +307,14 @@ func main() {
 			httpx.Err(w, http.StatusInternalServerError, "AUTH_FAILED", err.Error())
 			return
 		}
+
+		if queries != nil {
+			_, _ = queries.UpsertUser(r.Context(), db.UpsertUserParams{
+				PrivyDid: "did:privy:" + email,
+				Email:    pgtype.Text{String: email, Valid: true},
+			})
+		}
+
 		httpx.JSON(w, http.StatusOK, map[string]any{
 			"jwt":  token,
 			"user": map[string]any{"id": userID, "email": email},
@@ -353,16 +386,123 @@ func main() {
 		})
 
 		pr.Get("/v1/projects", func(w http.ResponseWriter, r *http.Request) {
-			memStore.mu.RLock()
-			defer memStore.mu.RUnlock()
+			claims, ok := auth.GetSession(r.Context())
+			if !ok {
+				httpx.Err(w, http.StatusUnauthorized, "UNAUTHORIZED", "missing or invalid session")
+				return
+			}
+			memStore.mu.Lock()
+			defer memStore.mu.Unlock()
+
+			orgIDStr := claims.OrgID.String()
 			var list []any
 			for _, p := range memStore.projects {
-				list = append(list, p)
+				pOrg, _ := p["org_id"].(string)
+				if pOrg == orgIDStr || (pOrg == "" && orgIDStr == demoOrgID) {
+					list = append(list, p)
+				}
+			}
+
+			// If the user's organization has no projects yet, auto-provision starter project
+			if len(list) == 0 {
+				projID := uuid.NewString()
+				starterProj := map[string]any{
+					"id":                      projID,
+					"org_id":                  orgIDStr,
+					"user_id":                 claims.UserID.String(),
+					"name":                    "market-scout",
+					"slug":                    "market-scout",
+					"status":                  "active",
+					"hcs_topic_id":            platformAccount,
+					"quorum_threshold":        2,
+					"withdraw_quorum_min_usd": "100.0000000000",
+					"created_at":              time.Now().Format(time.RFC3339),
+				}
+				treasuryWallet, _ := privyClient.CreateServerWallet(r.Context())
+				agentWallet, _ := privyClient.CreateServerWallet(r.Context())
+
+				wallets := []map[string]any{
+					{
+						"id":                uuid.NewString(),
+						"kind":              "treasury",
+						"evm_address":       treasuryWallet.Address,
+						"hedera_account_id": platformAccount,
+						"usdc":              "50.000000",
+						"hbar":              "20.000000",
+						"status":            "ready",
+						"hashscan_url":      fmt.Sprintf("https://hashscan.io/%s/account/%s", cfg.HederaNetwork, platformAccount),
+					},
+					{
+						"id":                uuid.NewString(),
+						"kind":              "agent",
+						"evm_address":       agentWallet.Address,
+						"hedera_account_id": platformAccount,
+						"usdc":              "10.000000",
+						"hbar":              "5.000000",
+						"status":            "ready",
+						"hashscan_url":      fmt.Sprintf("https://hashscan.io/%s/account/%s", cfg.HederaNetwork, platformAccount),
+					},
+				}
+				memStore.projects[projID] = starterProj
+				memStore.wallets[projID] = wallets
+				memStore.policies[projID] = map[string]any{
+					"spec":            policy.DefaultSpecWithPayTo(platformAccount),
+					"version":         1,
+					"privy_policy_id": "privy_pol_" + projID[:8],
+					"pushed_at":       time.Now().Format(time.RFC3339),
+				}
+
+				if queries != nil {
+					pUUID, _ := uuid.Parse(projID)
+					minUSD := ledger.ToPgNumeric(decimal.RequireFromString("100"))
+					_, _ = queries.CreateProject(r.Context(), db.CreateProjectParams{
+						OrgID:                toPgUUID(claims.OrgID),
+						Slug:                 "market-scout",
+						Name:                 "market-scout",
+						Status:               "active",
+						HcsTopicID:           pgtype.Text{String: platformAccount, Valid: true},
+						QuorumThreshold:      2,
+						WithdrawQuorumMinUsd: minUSD,
+					})
+					_, _ = queries.CreateWallet(r.Context(), db.CreateWalletParams{
+						ProjectID:       toPgUUID(pUUID),
+						Kind:            "treasury",
+						Custody:         "privy",
+						PrivyWalletID:   pgtype.Text{String: treasuryWallet.ID, Valid: treasuryWallet.ID != ""},
+						EvmAddress:      treasuryWallet.Address,
+						HederaAccountID: pgtype.Text{String: platformAccount, Valid: true},
+						Status:          "ready",
+					})
+					_, _ = queries.CreateWallet(r.Context(), db.CreateWalletParams{
+						ProjectID:       toPgUUID(pUUID),
+						Kind:            "agent",
+						Custody:         "privy",
+						PrivyWalletID:   pgtype.Text{String: agentWallet.ID, Valid: agentWallet.ID != ""},
+						EvmAddress:      agentWallet.Address,
+						HederaAccountID: pgtype.Text{String: platformAccount, Valid: true},
+						Status:          "ready",
+					})
+					specBytes, _ := json.Marshal(policy.DefaultSpecWithPayTo(platformAccount))
+					_, _ = queries.UpsertPolicy(r.Context(), db.UpsertPolicyParams{
+						ProjectID:     toPgUUID(pUUID),
+						Spec:          specBytes,
+						PrivyPolicyID: pgtype.Text{String: "privy_pol_" + projID[:8], Valid: true},
+						Version:       1,
+						PushedAt:      pgtype.Timestamptz{Time: time.Now(), Valid: true},
+					})
+				}
+
+				list = append(list, starterProj)
 			}
 			httpx.JSON(w, http.StatusOK, list)
 		})
 
 		pr.Post("/v1/projects", func(w http.ResponseWriter, r *http.Request) {
+			claims, ok := auth.GetSession(r.Context())
+			if !ok {
+				httpx.Err(w, http.StatusUnauthorized, "UNAUTHORIZED", "missing or invalid session")
+				return
+			}
 			var req struct {
 				Name           string `json:"name"`
 				Slug           string `json:"slug"`
@@ -378,10 +518,15 @@ func main() {
 			if req.Slug == "" {
 				req.Slug = strings.ToLower(strings.ReplaceAll(req.Name, " ", "-"))
 			}
+			if req.Quorum.Threshold <= 0 {
+				req.Quorum.Threshold = 2
+			}
 
 			projID := uuid.NewString()
 			p := map[string]any{
 				"id":                      projID,
+				"org_id":                  claims.OrgID.String(),
+				"user_id":                 claims.UserID.String(),
 				"name":                    req.Name,
 				"slug":                    req.Slug,
 				"status":                  "active",
@@ -428,6 +573,46 @@ func main() {
 			}
 			memStore.mu.Unlock()
 
+			if queries != nil {
+				pUUID, _ := uuid.Parse(projID)
+				minUSD := ledger.ToPgNumeric(decimal.RequireFromString("100"))
+				_, _ = queries.CreateProject(r.Context(), db.CreateProjectParams{
+					OrgID:                toPgUUID(claims.OrgID),
+					Slug:                 req.Slug,
+					Name:                 req.Name,
+					Status:               "active",
+					HcsTopicID:           pgtype.Text{String: platformAccount, Valid: true},
+					QuorumThreshold:      int16(req.Quorum.Threshold),
+					WithdrawQuorumMinUsd: minUSD,
+				})
+				_, _ = queries.CreateWallet(r.Context(), db.CreateWalletParams{
+					ProjectID:       toPgUUID(pUUID),
+					Kind:            "treasury",
+					Custody:         "privy",
+					PrivyWalletID:   pgtype.Text{String: treasuryWallet.ID, Valid: treasuryWallet.ID != ""},
+					EvmAddress:      treasuryWallet.Address,
+					HederaAccountID: pgtype.Text{String: platformAccount, Valid: true},
+					Status:          "ready",
+				})
+				_, _ = queries.CreateWallet(r.Context(), db.CreateWalletParams{
+					ProjectID:       toPgUUID(pUUID),
+					Kind:            "agent",
+					Custody:         "privy",
+					PrivyWalletID:   pgtype.Text{String: agentWallet.ID, Valid: agentWallet.ID != ""},
+					EvmAddress:      agentWallet.Address,
+					HederaAccountID: pgtype.Text{String: platformAccount, Valid: true},
+					Status:          "ready",
+				})
+				specBytes, _ := json.Marshal(policy.DefaultSpecWithPayTo(platformAccount))
+				_, _ = queries.UpsertPolicy(r.Context(), db.UpsertPolicyParams{
+					ProjectID:     toPgUUID(pUUID),
+					Spec:          specBytes,
+					PrivyPolicyID: pgtype.Text{String: "privy_pol_" + projID[:8], Valid: true},
+					Version:       1,
+					PushedAt:      pgtype.Timestamptz{Time: time.Now(), Valid: true},
+				})
+			}
+
 			httpx.JSON(w, http.StatusCreated, map[string]any{
 				"project": p,
 				"wallets": wallets,
@@ -436,16 +621,17 @@ func main() {
 
 		pr.Get("/v1/projects/{id}", func(w http.ResponseWriter, r *http.Request) {
 			id := chi.URLParam(r, "id")
-			memStore.mu.RLock()
-			p, ok := memStore.projects[id]
-			wlt := memStore.wallets[id]
-			pol := memStore.policies[id]
-			calls := memStore.calls[id]
-			memStore.mu.RUnlock()
+			claims, _ := auth.GetSession(r.Context())
+			p, ok := memStore.getProjectForOrg(id, claims.OrgID)
 			if !ok {
 				httpx.Err(w, http.StatusNotFound, "NOT_FOUND", "project not found")
 				return
 			}
+			memStore.mu.RLock()
+			wlt := memStore.wallets[id]
+			pol := memStore.policies[id]
+			calls := memStore.calls[id]
+			memStore.mu.RUnlock()
 
 			// Dynamically sum USDC across all wallets of this project
 			totalUSDC := decimal.Zero
@@ -520,6 +706,11 @@ func main() {
 
 		pr.Get("/v1/projects/{id}/wallets", func(w http.ResponseWriter, r *http.Request) {
 			id := chi.URLParam(r, "id")
+			claims, _ := auth.GetSession(r.Context())
+			if _, ok := memStore.getProjectForOrg(id, claims.OrgID); !ok {
+				httpx.Err(w, http.StatusNotFound, "NOT_FOUND", "project not found")
+				return
+			}
 			memStore.mu.RLock()
 			wlts := memStore.wallets[id]
 			memStore.mu.RUnlock()
@@ -528,6 +719,11 @@ func main() {
 
 		pr.Post("/v1/projects/{id}/faucet", func(w http.ResponseWriter, r *http.Request) {
 			id := chi.URLParam(r, "id")
+			claims, _ := auth.GetSession(r.Context())
+			if _, ok := memStore.getProjectForOrg(id, claims.OrgID); !ok {
+				httpx.Err(w, http.StatusNotFound, "NOT_FOUND", "project not found")
+				return
+			}
 			memStore.mu.Lock()
 			for _, wlt := range memStore.wallets[id] {
 				if wlt["kind"] == "treasury" {
@@ -560,6 +756,11 @@ func main() {
 		// Treasury to Agent topup (Doc 06 §1)
 		pr.Post("/v1/projects/{id}/topup", func(w http.ResponseWriter, r *http.Request) {
 			id := chi.URLParam(r, "id")
+			claims, _ := auth.GetSession(r.Context())
+			if _, ok := memStore.getProjectForOrg(id, claims.OrgID); !ok {
+				httpx.Err(w, http.StatusNotFound, "NOT_FOUND", "project not found")
+				return
+			}
 			var req struct {
 				AmountUSDC string `json:"amount_usdc"`
 			}
@@ -615,6 +816,11 @@ func main() {
 
 		pr.Get("/v1/projects/{id}/policy", func(w http.ResponseWriter, r *http.Request) {
 			id := chi.URLParam(r, "id")
+			claims, _ := auth.GetSession(r.Context())
+			if _, ok := memStore.getProjectForOrg(id, claims.OrgID); !ok {
+				httpx.Err(w, http.StatusNotFound, "NOT_FOUND", "project not found")
+				return
+			}
 			memStore.mu.RLock()
 			pol := memStore.policies[id]
 			memStore.mu.RUnlock()
@@ -623,6 +829,11 @@ func main() {
 
 		pr.Put("/v1/projects/{id}/policy", func(w http.ResponseWriter, r *http.Request) {
 			id := chi.URLParam(r, "id")
+			claims, _ := auth.GetSession(r.Context())
+			if _, ok := memStore.getProjectForOrg(id, claims.OrgID); !ok {
+				httpx.Err(w, http.StatusNotFound, "NOT_FOUND", "project not found")
+				return
+			}
 			var req struct {
 				Spec policy.Spec `json:"spec"`
 			}
@@ -640,14 +851,36 @@ func main() {
 
 		pr.Get("/v1/projects/{id}/keys", func(w http.ResponseWriter, r *http.Request) {
 			id := chi.URLParam(r, "id")
+			claims, _ := auth.GetSession(r.Context())
+			if _, ok := memStore.getProjectForOrg(id, claims.OrgID); !ok {
+				httpx.Err(w, http.StatusNotFound, "NOT_FOUND", "project not found")
+				return
+			}
 			memStore.mu.RLock()
-			keys := memStore.keys[id]
+			rawKeys := memStore.keys[id]
 			memStore.mu.RUnlock()
-			httpx.JSON(w, http.StatusOK, keys)
+
+			// Defense-in-depth: Never return the secret key
+			safeKeys := make([]map[string]any, 0, len(rawKeys))
+			for _, rk := range rawKeys {
+				sk := make(map[string]any)
+				for kf, vf := range rk {
+					if kf != "key" {
+						sk[kf] = vf
+					}
+				}
+				safeKeys = append(safeKeys, sk)
+			}
+			httpx.JSON(w, http.StatusOK, safeKeys)
 		})
 
 		pr.Post("/v1/projects/{id}/keys", func(w http.ResponseWriter, r *http.Request) {
 			id := chi.URLParam(r, "id")
+			claims, _ := auth.GetSession(r.Context())
+			if _, ok := memStore.getProjectForOrg(id, claims.OrgID); !ok {
+				httpx.Err(w, http.StatusNotFound, "NOT_FOUND", "project not found")
+				return
+			}
 			var req struct {
 				Name string `json:"name"`
 			}
@@ -679,33 +912,79 @@ func main() {
 				return
 			}
 			prefix := fullKey[:16]
+			keyHash := auth.HashAPIKey(fullKey)
+			keyID := uuid.NewString()
 
+			// Storage record NEVER stores plaintext key
 			k := map[string]any{
-				"id":           uuid.NewString(),
+				"id":           keyID,
 				"name":         req.Name,
 				"prefix":       prefix,
 				"status":       "active",
 				"carry_usd":    "0.0000000000",
 				"last_used_at": nil,
 				"created_at":   time.Now().Format(time.RFC3339),
-				"key":          fullKey, // Returned once
 			}
 
 			memStore.mu.Lock()
 			memStore.keys[id] = append(memStore.keys[id], k)
 			memStore.mu.Unlock()
 
-			httpx.JSON(w, http.StatusCreated, k)
+			if queries != nil {
+				var agentWalletID uuid.UUID
+				for _, wlt := range wallets {
+					if wlt["kind"] == "agent" {
+						if widStr, ok := wlt["id"].(string); ok {
+							agentWalletID, _ = uuid.Parse(widStr)
+						}
+					}
+				}
+				if pUUID, err := uuid.Parse(id); err == nil {
+					_, _ = queries.CreateAPIKey(r.Context(), db.CreateAPIKeyParams{
+						ProjectID: toPgUUID(pUUID),
+						WalletID:  toPgUUID(agentWalletID),
+						Name:      req.Name,
+						Prefix:    prefix,
+						KeyHash:   keyHash,
+						Status:    "active",
+					})
+				}
+			}
+
+			if rdb != nil {
+				khHex := hex.EncodeToString(keyHash[:])
+				keyCtxData, _ := json.Marshal(map[string]any{
+					"key_id":            keyID,
+					"project_id":        id,
+					"hedera_account_id": platformAccount,
+					"evm_address":       "0x0000000000000000000000000000000000000000",
+					"status":            "active",
+				})
+				_ = rdb.Set(r.Context(), "key_ctx:"+khHex, keyCtxData, 0).Err()
+			}
+
+			resp := make(map[string]any)
+			for kf, vf := range k {
+				resp[kf] = vf
+			}
+			resp["key"] = fullKey // Returned EXACTLY ONCE upon creation
+			httpx.JSON(w, http.StatusCreated, resp)
 		})
 
 		// API Key Revocation (Feature 1.9 / Doc 08 §1)
 		pr.Delete("/v1/projects/{id}/keys/{key_id}", func(w http.ResponseWriter, r *http.Request) {
 			id := chi.URLParam(r, "id")
 			keyID := chi.URLParam(r, "key_id")
+			claims, _ := auth.GetSession(r.Context())
+			if _, ok := memStore.getProjectForOrg(id, claims.OrgID); !ok {
+				httpx.Err(w, http.StatusNotFound, "NOT_FOUND", "project not found")
+				return
+			}
 			memStore.mu.Lock()
 			for _, k := range memStore.keys[id] {
 				if k["id"] == keyID {
 					k["status"] = "revoked"
+					delete(k, "key")
 				}
 			}
 			memStore.mu.Unlock()
@@ -716,6 +995,11 @@ func main() {
 		pr.Post("/v1/projects/{id}/keys/{key_id}/rotate", func(w http.ResponseWriter, r *http.Request) {
 			id := chi.URLParam(r, "id")
 			keyID := chi.URLParam(r, "key_id")
+			claims, _ := auth.GetSession(r.Context())
+			if _, ok := memStore.getProjectForOrg(id, claims.OrgID); !ok {
+				httpx.Err(w, http.StatusNotFound, "NOT_FOUND", "project not found")
+				return
+			}
 
 			memStore.mu.Lock()
 			defer memStore.mu.Unlock()
@@ -737,6 +1021,7 @@ func main() {
 			graceExpiresAt := time.Now().Add(1 * time.Hour).Format(time.RFC3339)
 			oldKey["status"] = "retiring"
 			oldKey["grace_expires_at"] = graceExpiresAt
+			delete(oldKey, "key")
 
 			// Generate new key
 			newFullKey, err := auth.GenerateAPIKey(true)
@@ -749,33 +1034,85 @@ func main() {
 			if oldName, ok := oldKey["name"].(string); ok {
 				name = oldName + "-rotated"
 			}
+			newPrefix := newFullKey[:16]
+			newKeyHash := auth.HashAPIKey(newFullKey)
 
 			newK := map[string]any{
 				"id":           newKeyID,
 				"name":         name,
-				"prefix":       newFullKey[:16],
+				"prefix":       newPrefix,
 				"status":       "active",
 				"carry_usd":    "0.0000000000",
 				"last_used_at": nil,
 				"created_at":   time.Now().Format(time.RFC3339),
-				"key":          newFullKey,
 			}
-
 			memStore.keys[id] = append(memStore.keys[id], newK)
 
+			if queries != nil {
+				var agentWalletID uuid.UUID
+				for _, wlt := range memStore.wallets[id] {
+					if wlt["kind"] == "agent" {
+						if widStr, ok := wlt["id"].(string); ok {
+							agentWalletID, _ = uuid.Parse(widStr)
+						}
+					}
+				}
+				if pUUID, err := uuid.Parse(id); err == nil {
+					_, _ = queries.CreateAPIKey(r.Context(), db.CreateAPIKeyParams{
+						ProjectID: toPgUUID(pUUID),
+						WalletID:  toPgUUID(agentWalletID),
+						Name:      name,
+						Prefix:    newPrefix,
+						KeyHash:   newKeyHash,
+						Status:    "active",
+					})
+				}
+			}
+
+			if rdb != nil {
+				khHex := hex.EncodeToString(newKeyHash[:])
+				keyCtxData, _ := json.Marshal(map[string]any{
+					"key_id":            newKeyID,
+					"project_id":        id,
+					"hedera_account_id": platformAccount,
+					"evm_address":       "0x0000000000000000000000000000000000000000",
+					"status":            "active",
+				})
+				_ = rdb.Set(r.Context(), "key_ctx:"+khHex, keyCtxData, 0).Err()
+			}
+
 			httpx.JSON(w, http.StatusOK, map[string]any{
-				"new_key": newK,
+				"new_key": map[string]any{
+					"id":         newKeyID,
+					"name":       name,
+					"prefix":     newPrefix,
+					"key":        newFullKey, // Returned ONCE
+					"status":     "active",
+					"created_at": newK["created_at"],
+				},
 				"retired_key": map[string]any{
-					"id":                     keyID,
-					"status":                 "retiring",
-					"grace_period_window":    "1h",
-					"grace_expires_at":       graceExpiresAt,
+					"id":                  keyID,
+					"status":              "retiring",
+					"grace_period_window": "1h",
+					"grace_expires_at":    graceExpiresAt,
 				},
 			})
 		})
 
 		pr.Get("/v1/projects/{id}/mcp-config", func(w http.ResponseWriter, r *http.Request) {
+			id := chi.URLParam(r, "id")
+			claims, _ := auth.GetSession(r.Context())
+			if _, ok := memStore.getProjectForOrg(id, claims.OrgID); !ok {
+				httpx.Err(w, http.StatusNotFound, "NOT_FOUND", "project not found")
+				return
+			}
+			host := r.Host
 			mcpURL := fmt.Sprintf("http://localhost:%d/mcp", cfg.PortMCP)
+			if strings.Contains(host, "foundereum.org") {
+				mcpURL = "https://mcp.foundereum.org/mcp"
+			} else if strings.Contains(host, "foundereum.com") {
+				mcpURL = "https://mcp.foundereum.com/mcp"
+			}
 			httpx.JSON(w, http.StatusOK, map[string]any{
 				"http_url": mcpURL,
 				"claude_desktop": map[string]any{
@@ -784,7 +1121,7 @@ func main() {
 							"command": "npx",
 							"args":    []string{"-y", "foundereum-mcp", "--url", mcpURL},
 							"env": map[string]string{
-								"FOUNDEREUM_API_KEY": "fnd_sk_live_sample_paste_your_key_here",
+								"FOUNDEREUM_API_KEY": "fnd_sk_live_paste_your_key_here",
 							},
 						},
 					},
@@ -794,6 +1131,11 @@ func main() {
 
 		pr.Get("/v1/projects/{id}/calls", func(w http.ResponseWriter, r *http.Request) {
 			id := chi.URLParam(r, "id")
+			claims, _ := auth.GetSession(r.Context())
+			if _, ok := memStore.getProjectForOrg(id, claims.OrgID); !ok {
+				httpx.Err(w, http.StatusNotFound, "NOT_FOUND", "project not found")
+				return
+			}
 			if queries != nil {
 				pUUID, err := uuid.Parse(id)
 				if err == nil {
@@ -839,6 +1181,11 @@ func main() {
 
 		pr.Get("/v1/projects/{id}/audit", func(w http.ResponseWriter, r *http.Request) {
 			id := chi.URLParam(r, "id")
+			claims, _ := auth.GetSession(r.Context())
+			if _, ok := memStore.getProjectForOrg(id, claims.OrgID); !ok {
+				httpx.Err(w, http.StatusNotFound, "NOT_FOUND", "project not found")
+				return
+			}
 			topicID := platformAccount
 
 			if queries != nil {
@@ -889,6 +1236,11 @@ func main() {
 
 		pr.Get("/v1/projects/{id}/approvals", func(w http.ResponseWriter, r *http.Request) {
 			id := chi.URLParam(r, "id")
+			claims, _ := auth.GetSession(r.Context())
+			if _, ok := memStore.getProjectForOrg(id, claims.OrgID); !ok {
+				httpx.Err(w, http.StatusNotFound, "NOT_FOUND", "project not found")
+				return
+			}
 			memStore.mu.RLock()
 			apps := memStore.approvals[id]
 			memStore.mu.RUnlock()
@@ -897,6 +1249,11 @@ func main() {
 
 		pr.Post("/v1/projects/{id}/withdraw", func(w http.ResponseWriter, r *http.Request) {
 			id := chi.URLParam(r, "id")
+			claims, _ := auth.GetSession(r.Context())
+			if _, ok := memStore.getProjectForOrg(id, claims.OrgID); !ok {
+				httpx.Err(w, http.StatusNotFound, "NOT_FOUND", "project not found")
+				return
+			}
 			var req struct {
 				ToAccount  string `json:"to_account"`
 				AmountUSDC string `json:"amount_usdc"`
@@ -1128,6 +1485,12 @@ func main() {
 		})
 
 		pr.Get("/v1/projects/{id}/events", func(w http.ResponseWriter, r *http.Request) {
+			projectID := chi.URLParam(r, "id")
+			claims, _ := auth.GetSession(r.Context())
+			if _, ok := memStore.getProjectForOrg(projectID, claims.OrgID); !ok {
+				httpx.Err(w, http.StatusNotFound, "NOT_FOUND", "project not found")
+				return
+			}
 			w.Header().Set("Content-Type", "text/event-stream")
 			w.Header().Set("Cache-Control", "no-cache")
 			w.Header().Set("Connection", "keep-alive")
@@ -1136,7 +1499,6 @@ func main() {
 				http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
 				return
 			}
-			projectID := chi.URLParam(r, "id")
 			fmt.Fprintf(w, "event: project.ready\ndata: {\"project_id\":\"%s\"}\n\n", projectID)
 			flusher.Flush()
 
