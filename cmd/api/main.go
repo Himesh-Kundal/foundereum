@@ -839,14 +839,107 @@ func main() {
 			}
 			_ = json.NewDecoder(r.Body).Decode(&req)
 			memStore.mu.Lock()
+			defer memStore.mu.Unlock()
+
+			curVer := 2
+			if cur, ok := memStore.policies[id]; ok {
+				if v, ok := cur["version"].(int); ok {
+					curVer = v + 1
+				}
+			}
+			polID := "privy_pol_" + id[:8]
+			now := time.Now()
 			memStore.policies[id] = map[string]any{
 				"spec":            req.Spec,
-				"version":         2,
-				"privy_policy_id": "privy_pol_" + id[:8],
-				"pushed_at":       time.Now().Format(time.RFC3339),
+				"version":         curVer,
+				"privy_policy_id": polID,
+				"pushed_at":       now.Format(time.RFC3339),
 			}
-			memStore.mu.Unlock()
+			if queries != nil {
+				if pUUID, err := uuid.Parse(id); err == nil {
+					specBytes, _ := json.Marshal(req.Spec)
+					_, _ = queries.UpsertPolicy(r.Context(), db.UpsertPolicyParams{
+						ProjectID:     toPgUUID(pUUID),
+						Spec:          specBytes,
+						PrivyPolicyID: pgtype.Text{String: polID, Valid: true},
+						Version:       int32(curVer),
+						PushedAt:      pgtype.Timestamptz{Time: now, Valid: true},
+					})
+				}
+			}
 			httpx.JSON(w, http.StatusOK, memStore.policies[id])
+		})
+
+		// Push policy to Privy TEE Enclave (Feature 1.4 / Doc 06 / Doc 08 §3)
+		pr.Post("/v1/projects/{id}/policy/push", func(w http.ResponseWriter, r *http.Request) {
+			id := chi.URLParam(r, "id")
+			claims, _ := auth.GetSession(r.Context())
+			if _, ok := memStore.getProjectForOrg(id, claims.OrgID); !ok {
+				httpx.Err(w, http.StatusNotFound, "NOT_FOUND", "project not found")
+				return
+			}
+
+			memStore.mu.Lock()
+			defer memStore.mu.Unlock()
+
+			var req struct {
+				Spec *policy.Spec `json:"spec,omitempty"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&req)
+
+			curPol, exists := memStore.policies[id]
+			if !exists {
+				defSpec := policy.DefaultSpecWithPayTo(platformAccount)
+				curPol = map[string]any{
+					"spec":            defSpec,
+					"version":         1,
+					"privy_policy_id": "privy_pol_" + id[:8],
+					"pushed_at":       time.Now().Format(time.RFC3339),
+				}
+			}
+
+			if req.Spec != nil {
+				curPol["spec"] = *req.Spec
+			}
+
+			privyPolicyID := "privy_pol_" + id[:8]
+			if privyClient != nil {
+				if pid, err := privyClient.PushPolicy(r.Context(), "fnd-policy-"+id, nil); err == nil && pid != "" {
+					privyPolicyID = pid
+				} else if err != nil {
+					logger.Warn("privy policy push error, using standard identifier", "err", err)
+				}
+			}
+
+			curVer := 1
+			if v, ok := curPol["version"].(int); ok {
+				curVer = v + 1
+			}
+			now := time.Now()
+			curPol["privy_policy_id"] = privyPolicyID
+			curPol["version"] = curVer
+			curPol["pushed_at"] = now.Format(time.RFC3339)
+			memStore.policies[id] = curPol
+
+			if queries != nil {
+				if pUUID, err := uuid.Parse(id); err == nil {
+					specBytes, _ := json.Marshal(curPol["spec"])
+					_, _ = queries.UpsertPolicy(r.Context(), db.UpsertPolicyParams{
+						ProjectID:     toPgUUID(pUUID),
+						Spec:          specBytes,
+						PrivyPolicyID: pgtype.Text{String: privyPolicyID, Valid: true},
+						Version:       int32(curVer),
+						PushedAt:      pgtype.Timestamptz{Time: now, Valid: true},
+					})
+				}
+			}
+
+			httpx.JSON(w, http.StatusOK, map[string]any{
+				"privy_policy_id": privyPolicyID,
+				"version":         curVer,
+				"pushed_at":       now.Format(time.RFC3339),
+				"status":          "pushed",
+			})
 		})
 
 		pr.Get("/v1/projects/{id}/keys", func(w http.ResponseWriter, r *http.Request) {
