@@ -360,7 +360,7 @@ export default function App() {
     }
   };
 
-  const handleApprove = async (approvalId: string) => {
+  const handleApprove = async (approvalId: string, signerEmail?: string) => {
     try {
       let sig = 'p256_webcrypto_sig';
       if (typeof window !== 'undefined' && window.crypto && window.crypto.subtle) {
@@ -378,7 +378,7 @@ export default function App() {
           sig = Array.from(new Uint8Array(rawSig)).map(b => b.toString(16).padStart(2, '0')).join('');
         } catch {}
       }
-      const res = await api.approve(approvalId, sig);
+      const res = await api.approve(approvalId, sig, signerEmail);
       showToast(`Approval signature registered: ${res.status === 'executed' ? 'Executed: ' + res.result_tx_id : res.signatures_count + ' signature(s) recorded'}`);
       if (activeProjectId) {
         await loadProjectData(activeProjectId, false);

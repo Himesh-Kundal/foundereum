@@ -482,15 +482,88 @@ func main() {
 			})
 		})
 
-		// Organization members (Doc 06 §1)
+		// Organization & Project members (Doc 06 §1)
 		pr.Get("/v1/orgs/{id}/members", func(w http.ResponseWriter, r *http.Request) {
 			orgID := chi.URLParam(r, "id")
+			claims, _ := auth.GetSession(r.Context())
+			if (orgID == "00000000-0000-0000-0000-000000000001" || orgID == "me") && claims != nil {
+				orgID = claims.OrgID.String()
+			}
+
+			if queries != nil {
+				if oUUID, err := uuid.Parse(orgID); err == nil {
+					dbMems, err := queries.GetOrgMembers(r.Context(), toPgUUID(oUUID))
+					if err == nil && len(dbMems) > 0 {
+						var res []map[string]any
+						for _, m := range dbMems {
+							res = append(res, map[string]any{
+								"email":  m.Email,
+								"role":   m.Role,
+								"status": m.Status,
+							})
+						}
+						httpx.JSON(w, http.StatusOK, res)
+						return
+					}
+				}
+			}
+
 			memStore.mu.RLock()
 			mems := memStore.members[orgID]
 			memStore.mu.RUnlock()
 			if len(mems) == 0 {
+				defaultEmail := "operator@foundereum.org"
+				if claims != nil && claims.Email != "" {
+					defaultEmail = claims.Email
+				}
 				mems = []map[string]any{
-					{"email": "operator@foundereum.org", "role": "owner", "status": "active"},
+					{"email": defaultEmail, "role": "owner", "status": "active"},
+				}
+			}
+			httpx.JSON(w, http.StatusOK, mems)
+		})
+
+		pr.Get("/v1/projects/{id}/members", func(w http.ResponseWriter, r *http.Request) {
+			projID := chi.URLParam(r, "id")
+			claims, _ := auth.GetSession(r.Context())
+			p, ok := memStore.getProjectForOrg(projID, claims.OrgID)
+			if !ok {
+				httpx.Err(w, http.StatusNotFound, "NOT_FOUND", "project not found")
+				return
+			}
+			orgIDStr := claims.OrgID.String()
+			if pOrg, ok := p["org_id"].(string); ok && pOrg != "" {
+				orgIDStr = pOrg
+			}
+
+			if queries != nil {
+				if oUUID, err := uuid.Parse(orgIDStr); err == nil {
+					dbMems, err := queries.GetOrgMembers(r.Context(), toPgUUID(oUUID))
+					if err == nil && len(dbMems) > 0 {
+						var res []map[string]any
+						for _, m := range dbMems {
+							res = append(res, map[string]any{
+								"email":  m.Email,
+								"role":   m.Role,
+								"status": m.Status,
+							})
+						}
+						httpx.JSON(w, http.StatusOK, res)
+						return
+					}
+				}
+			}
+
+			memStore.mu.RLock()
+			mems := memStore.members[orgIDStr]
+			memStore.mu.RUnlock()
+			if len(mems) == 0 {
+				defaultEmail := "operator@foundereum.org"
+				if claims != nil && claims.Email != "" {
+					defaultEmail = claims.Email
+				}
+				mems = []map[string]any{
+					{"email": defaultEmail, "role": "owner", "status": "active"},
 				}
 			}
 			httpx.JSON(w, http.StatusOK, mems)
@@ -498,6 +571,10 @@ func main() {
 
 		pr.Post("/v1/orgs/{id}/members", func(w http.ResponseWriter, r *http.Request) {
 			orgID := chi.URLParam(r, "id")
+			claims, _ := auth.GetSession(r.Context())
+			if (orgID == "00000000-0000-0000-0000-000000000001" || orgID == "me") && claims != nil {
+				orgID = claims.OrgID.String()
+			}
 			var req struct {
 				Email string `json:"email"`
 				Role  string `json:"role"`
@@ -506,17 +583,30 @@ func main() {
 				httpx.Err(w, http.StatusBadRequest, "INVALID_REQUEST", "email is required")
 				return
 			}
+			req.Email = strings.ToLower(strings.TrimSpace(req.Email))
 			if req.Role == "" {
 				req.Role = "approver"
 			}
 			newMem := map[string]any{
 				"email":  req.Email,
 				"role":   req.Role,
-				"status": "invited",
+				"status": "active",
 			}
 			memStore.mu.Lock()
 			memStore.members[orgID] = append(memStore.members[orgID], newMem)
 			memStore.mu.Unlock()
+
+			if queries != nil {
+				if oUUID, err := uuid.Parse(orgID); err == nil {
+					_, _ = queries.AddMember(r.Context(), db.AddMemberParams{
+						OrgID:  toPgUUID(oUUID),
+						Email:  req.Email,
+						Role:   req.Role,
+						Status: "active",
+					})
+				}
+			}
+
 			httpx.JSON(w, http.StatusCreated, newMem)
 		})
 
@@ -871,6 +961,56 @@ func main() {
 				"hcs_topic":     hcsTopic,
 				"identity":      map[string]any{"scheme": "foundereum.hedera.v1", "agent_id": 1},
 			})
+		})
+
+		pr.Patch("/v1/projects/{id}", func(w http.ResponseWriter, r *http.Request) {
+			id := chi.URLParam(r, "id")
+			claims, _ := auth.GetSession(r.Context())
+			p, ok := memStore.getProjectForOrg(id, claims.OrgID)
+			if !ok {
+				httpx.Err(w, http.StatusNotFound, "NOT_FOUND", "project not found")
+				return
+			}
+			var req struct {
+				QuorumThreshold      *int    `json:"quorum_threshold"`
+				WithdrawQuorumMinUSD *string `json:"withdraw_quorum_min_usd"`
+				Name                 *string `json:"name"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				httpx.Err(w, http.StatusBadRequest, "INVALID_BODY", err.Error())
+				return
+			}
+
+			memStore.mu.Lock()
+			if req.QuorumThreshold != nil && *req.QuorumThreshold > 0 {
+				p["quorum_threshold"] = *req.QuorumThreshold
+			}
+			if req.WithdrawQuorumMinUSD != nil && *req.WithdrawQuorumMinUSD != "" {
+				p["withdraw_quorum_min_usd"] = *req.WithdrawQuorumMinUSD
+			}
+			if req.Name != nil && *req.Name != "" {
+				p["name"] = *req.Name
+			}
+			memStore.projects[id] = p
+			memStore.mu.Unlock()
+
+			if pgPool != nil {
+				if pUUID, err := uuid.Parse(id); err == nil {
+					if req.QuorumThreshold != nil && *req.QuorumThreshold > 0 {
+						_, _ = pgPool.Exec(r.Context(), "UPDATE projects SET quorum_threshold = $2 WHERE id = $1", pUUID, int16(*req.QuorumThreshold))
+					}
+					if req.WithdrawQuorumMinUSD != nil && *req.WithdrawQuorumMinUSD != "" {
+						if dec, err := decimal.NewFromString(*req.WithdrawQuorumMinUSD); err == nil {
+							_, _ = pgPool.Exec(r.Context(), "UPDATE projects SET withdraw_quorum_min_usd = $2 WHERE id = $1", pUUID, ledger.ToPgNumeric(dec))
+						}
+					}
+					if req.Name != nil && *req.Name != "" {
+						_, _ = pgPool.Exec(r.Context(), "UPDATE projects SET name = $2 WHERE id = $1", pUUID, *req.Name)
+					}
+				}
+			}
+
+			httpx.JSON(w, http.StatusOK, p)
 		})
 
 		pr.Get("/v1/projects/{id}/wallets", func(w http.ResponseWriter, r *http.Request) {
@@ -1823,8 +1963,12 @@ func main() {
 			}
 
 			appID := uuid.NewString()
+			callerEmail := "operator@foundereum.org"
+			if claims != nil && claims.Email != "" {
+				callerEmail = claims.Email
+			}
 			initialSigs := []map[string]any{
-				{"email": "operator@foundereum.org", "at": time.Now().Format(time.RFC3339)},
+				{"email": callerEmail, "at": time.Now().Format(time.RFC3339)},
 			}
 
 			payloadMap := map[string]any{
@@ -1859,7 +2003,7 @@ func main() {
 					"status":           "executed",
 					"result_tx_id":     resultTxID,
 					"hashscan_url":     fmt.Sprintf("https://hashscan.io/%s/transaction/%s", cfg.HederaNetwork, resultTxID),
-					"created_by":       "operator@foundereum.org",
+					"created_by":       callerEmail,
 					"expires_at":       time.Now().Add(24 * time.Hour).Format(time.RFC3339),
 				}
 				memStore.approvals[id] = append(memStore.approvals[id], app)
@@ -1876,10 +2020,6 @@ func main() {
 			}
 
 			// Requires quorum approval
-			callerEmail := "operator@foundereum.org"
-			if claims != nil && claims.Email != "" {
-				callerEmail = claims.Email
-			}
 			app := map[string]any{
 				"id":         appID,
 				"project_id": id,
@@ -1918,8 +2058,11 @@ func main() {
 			id := chi.URLParam(r, "id")
 			var req struct {
 				Signature string `json:"signature"`
+				Email     string `json:"email"`
 			}
 			_ = json.NewDecoder(r.Body).Decode(&req)
+
+			claims, _ := auth.GetSession(r.Context())
 
 			memStore.mu.Lock()
 			defer memStore.mu.Unlock()
@@ -1951,8 +2094,28 @@ func main() {
 			}
 
 			sigs, _ := targetApp["signatures"].([]map[string]any)
+
+			// Determine signer email
+			signerEmail := ""
+			if req.Email != "" {
+				signerEmail = strings.ToLower(strings.TrimSpace(req.Email))
+			} else if claims != nil && claims.Email != "" {
+				signerEmail = strings.ToLower(strings.TrimSpace(claims.Email))
+			}
+			if signerEmail == "" {
+				signerEmail = fmt.Sprintf("approver-%d@foundereum.org", len(sigs)+1)
+			}
+
+			// Reject duplicate signatures from the same email
+			for _, s := range sigs {
+				if existingEmail, ok := s["email"].(string); ok && strings.EqualFold(existingEmail, signerEmail) {
+					httpx.Err(w, http.StatusBadRequest, "ALREADY_SIGNED", fmt.Sprintf("signer %s has already signed this approval request", signerEmail))
+					return
+				}
+			}
+
 			sigs = append(sigs, map[string]any{
-				"email":     "approver-2@foundereum.org",
+				"email":     signerEmail,
 				"signature": req.Signature,
 				"at":        time.Now().Format(time.RFC3339),
 			})

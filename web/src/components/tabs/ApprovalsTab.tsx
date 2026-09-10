@@ -1,13 +1,14 @@
 import { ApprovalCard } from '../ApprovalCard';
-import type { Approval } from '../../types';
+import type { Approval, OrgMember } from '../../types';
 
 export interface ApprovalsTabProps {
   approvals: Approval[];
-  onApprove: (approvalId: string) => Promise<void>;
+  orgMembers?: OrgMember[];
+  onApprove: (approvalId: string, signerEmail?: string) => Promise<void>;
   onReject: (approvalId: string) => Promise<void>;
 }
 
-export function ApprovalsTab({ approvals, onApprove, onReject }: ApprovalsTabProps) {
+export function ApprovalsTab({ approvals, orgMembers, onApprove, onReject }: ApprovalsTabProps) {
   const pendingApprovals = approvals.filter((a) => a.status === 'pending');
   const historyApprovals = approvals.filter((a) => a.status !== 'pending');
 
@@ -39,7 +40,9 @@ export function ApprovalsTab({ approvals, onApprove, onReject }: ApprovalsTabPro
             threshold={app.threshold || 2}
             initialStatus="pending"
             expiry={app.expires_at}
-            onApprove={() => onApprove(app.id)}
+            signatures={app.signatures}
+            orgMembers={orgMembers}
+            onApprove={(signerEmail) => onApprove(app.id, signerEmail)}
             onReject={() => onReject(app.id)}
           />
         ))}
@@ -58,6 +61,7 @@ export function ApprovalsTab({ approvals, onApprove, onReject }: ApprovalsTabPro
             action={formatHistory(app)}
             current={app.signatures?.length || app.threshold}
             threshold={app.threshold || 2}
+            signatures={app.signatures}
             initialStatus={app.status as any}
             isHistory
           />

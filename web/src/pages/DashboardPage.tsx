@@ -54,7 +54,7 @@ export interface DashboardPageProps {
   onRevokeKey: (keyId: string) => Promise<void>;
   onTopUp: (amount: string) => Promise<void>;
   onWithdraw: (account: string, amount: string) => Promise<void>;
-  onApprove: (approvalId: string) => Promise<void>;
+  onApprove: (approvalId: string, signerEmail?: string) => Promise<void>;
   onReject: (approvalId: string) => Promise<void>;
   onPushPolicy: (policyJson: string) => Promise<void>;
   onFaucet: () => Promise<void>;
@@ -191,6 +191,7 @@ export function DashboardPage({
         return (
           <ApprovalsTab
             approvals={approvals}
+            orgMembers={orgMembers}
             onApprove={onApprove}
             onReject={onReject}
           />

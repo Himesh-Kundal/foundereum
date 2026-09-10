@@ -390,10 +390,10 @@ class ApiClient {
     return this.request<Approval[]>(`/v1/projects/${projectId}/approvals`);
   }
 
-  async approve(approvalId: string, signature: string = 'p256_mock_sig'): Promise<{ status: string; signatures_count: number; result_tx_id?: string }> {
+  async approve(approvalId: string, signature: string = 'p256_mock_sig', email?: string): Promise<{ status: string; signatures_count: number; result_tx_id?: string }> {
     return this.request(`/v1/approvals/${approvalId}/approve`, {
       method: 'POST',
-      body: JSON.stringify({ signature }),
+      body: JSON.stringify({ signature, email }),
     });
   }
 
