@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -100,6 +101,7 @@ func main() {
 
 	ctx := context.Background()
 	var queries *db.Queries
+	var led *ledger.Ledger
 	var pgPool *pgxpool.Pool
 
 	pgPool, err = pgxpool.New(ctx, cfg.DatabaseURL)
@@ -108,6 +110,7 @@ func main() {
 	} else {
 		defer pgPool.Close()
 		queries = db.New(pgPool)
+		led = ledger.New(pgPool)
 		logger.Info("postgres connected for api control plane")
 	}
 
@@ -932,6 +935,22 @@ func main() {
 			}
 			memStore.mu.Unlock()
 
+			if led != nil && queries != nil {
+				if pUUID, err := uuid.Parse(id); err == nil {
+					if dbWlts, err := queries.GetWalletsByProject(r.Context(), toPgUUID(pUUID)); err == nil {
+						for _, dw := range dbWlts {
+							if dw.Kind == "treasury" {
+								faucetUSDCBase := decimal.NewFromInt(50_000_000)
+								faucetHBARBase := decimal.NewFromInt(1_000_000_000)
+								_ = led.Deposit(r.Context(), uuid.UUID(dw.ID.Bytes), "USDC", faucetUSDCBase, decimal.NewFromInt(50), "faucet", fmt.Sprintf("faucet_%s", uuid.NewString()[:8]))
+								_ = led.Deposit(r.Context(), uuid.UUID(dw.ID.Bytes), "HBAR", faucetHBARBase, decimal.NewFromInt(1), "faucet", fmt.Sprintf("faucet_%s", uuid.NewString()[:8]))
+								break
+							}
+						}
+					}
+				}
+			}
+
 			if rdb != nil {
 				msg, _ := json.Marshal(map[string]any{
 					"type":       "wallet.balance",
@@ -993,6 +1012,31 @@ func main() {
 				agentW["usdc"] = aUSDC.Add(topupAmt).StringFixed(6)
 			}
 			memStore.mu.Unlock()
+
+			if led != nil && queries != nil {
+				if pUUID, err := uuid.Parse(id); err == nil {
+					if dbWlts, err := queries.GetWalletsByProject(r.Context(), toPgUUID(pUUID)); err == nil {
+						var tID, aID uuid.UUID
+						for _, dw := range dbWlts {
+							if dw.Kind == "treasury" {
+								tID = uuid.UUID(dw.ID.Bytes)
+							} else if dw.Kind == "agent" {
+								aID = uuid.UUID(dw.ID.Bytes)
+							}
+						}
+						if tID != uuid.Nil && aID != uuid.Nil {
+							baseUnits := topupAmt.Mul(decimal.NewFromInt(1_000_000))
+							if err := led.Transfer(r.Context(), tID, aID, "USDC", baseUnits, topupAmt, "topup", fmt.Sprintf("topup_%s", uuid.NewString()[:8])); err != nil {
+								if errors.Is(err, ledger.ErrInsufficientBalance) {
+									httpx.Err(w, http.StatusBadRequest, "INSUFFICIENT_FUNDS", "treasury balance is insufficient for top-up")
+									return
+								}
+								logger.Warn("ledger transfer failed", "err", err)
+							}
+						}
+					}
+				}
+			}
 
 			if rdb != nil {
 				msg, _ := json.Marshal(map[string]any{
@@ -1076,14 +1120,12 @@ func main() {
 				return
 			}
 
-			memStore.mu.Lock()
-			defer memStore.mu.Unlock()
-
 			var req struct {
 				Spec *policy.Spec `json:"spec,omitempty"`
 			}
 			_ = json.NewDecoder(r.Body).Decode(&req)
 
+			memStore.mu.Lock()
 			curPol, exists := memStore.policies[id]
 			if !exists {
 				defSpec := policy.DefaultSpecWithPayTo(platformAccount)
@@ -1113,10 +1155,94 @@ func main() {
 				curVer = v + 1
 			}
 			now := time.Now()
+
+			// Check quorum threshold
+			threshold := 2
+			if p := memStore.projects[id]; p != nil {
+				if th, ok := p["quorum_threshold"].(int); ok && th > 0 {
+					threshold = th
+				}
+			}
+			if queries != nil {
+				if pUUID, err := uuid.Parse(id); err == nil {
+					if dbP, err := queries.GetProject(r.Context(), toPgUUID(pUUID)); err == nil {
+						threshold = int(dbP.QuorumThreshold)
+					}
+				}
+			}
+
+			if threshold > 1 {
+				appID := uuid.NewString()
+				callerEmail := "operator@foundereum.org"
+				if claims != nil && claims.Email != "" {
+					callerEmail = claims.Email
+				}
+				initialSigs := []map[string]any{
+					{"email": callerEmail, "at": now.Format(time.RFC3339)},
+				}
+				payloadMap := map[string]any{
+					"spec":            curPol["spec"],
+					"description":     fmt.Sprintf("POLICY UPDATE: Push updated spending policy to Privy TEE (v%d)", curVer),
+					"privy_policy_id": privyPolicyID,
+					"version":         curVer,
+				}
+				app := map[string]any{
+					"id":         appID,
+					"project_id": id,
+					"type":       "policy_update",
+					"payload":    payloadMap,
+					"threshold":  threshold,
+					"signatures": initialSigs,
+					"status":     "pending",
+					"created_by": callerEmail,
+					"expires_at": now.Add(24 * time.Hour).Format(time.RFC3339),
+				}
+				memStore.approvals[id] = append(memStore.approvals[id], app)
+				memStore.mu.Unlock()
+
+				if queries != nil {
+					if pUUID, err := uuid.Parse(id); err == nil {
+						pBytes, _ := json.Marshal(payloadMap)
+						sBytes, _ := json.Marshal(initialSigs)
+						_, _ = queries.CreateApproval(r.Context(), db.CreateApprovalParams{
+							ProjectID:  toPgUUID(pUUID),
+							Type:       "policy_update",
+							Payload:    pBytes,
+							Challenge:  []byte(appID),
+							Threshold:  int16(threshold),
+							Signatures: sBytes,
+							Status:     "pending",
+							CreatedBy:  callerEmail,
+							ExpiresAt:  pgtype.Timestamptz{Time: now.Add(24 * time.Hour), Valid: true},
+						})
+					}
+				}
+
+				if rdb != nil {
+					msg, _ := json.Marshal(map[string]any{
+						"type":          "approval.created",
+						"project_id":    id,
+						"approval_id":   appID,
+						"approval_type": "policy_update",
+					})
+					_ = rdb.Publish(r.Context(), "events:project:"+id, msg).Err()
+				}
+
+				httpx.JSON(w, http.StatusOK, map[string]any{
+					"status":          "pending_approval",
+					"approval_id":     appID,
+					"privy_policy_id": privyPolicyID,
+					"version":         curVer,
+					"message":         fmt.Sprintf("Policy change requires quorum approval (1/%d signatures recorded)", threshold),
+				})
+				return
+			}
+
 			curPol["privy_policy_id"] = privyPolicyID
 			curPol["version"] = curVer
 			curPol["pushed_at"] = now.Format(time.RFC3339)
 			memStore.policies[id] = curPol
+			memStore.mu.Unlock()
 
 			if queries != nil {
 				if pUUID, err := uuid.Parse(id); err == nil {
@@ -1710,6 +1836,19 @@ func main() {
 			if wAmt.LessThan(minQuorumUSD) && threshold <= 1 {
 				treasuryW["usdc"] = tUSDC.Sub(wAmt).StringFixed(6)
 				resultTxID := fmt.Sprintf("%s@withdraw_%s", platformAccount, appID[:8])
+				if led != nil && queries != nil {
+					if pUUID, err := uuid.Parse(id); err == nil {
+						if dbWlts, err := queries.GetWalletsByProject(r.Context(), toPgUUID(pUUID)); err == nil {
+							for _, dw := range dbWlts {
+								if dw.Kind == "treasury" {
+									baseUnits := wAmt.Mul(decimal.NewFromInt(1_000_000))
+									_ = led.Withdraw(r.Context(), uuid.UUID(dw.ID.Bytes), "USDC", baseUnits, wAmt, appID)
+									break
+								}
+							}
+						}
+					}
+				}
 				app := map[string]any{
 					"id":               appID,
 					"project_id":       id,
@@ -1737,6 +1876,10 @@ func main() {
 			}
 
 			// Requires quorum approval
+			callerEmail := "operator@foundereum.org"
+			if claims != nil && claims.Email != "" {
+				callerEmail = claims.Email
+			}
 			app := map[string]any{
 				"id":         appID,
 				"project_id": id,
@@ -1745,10 +1888,28 @@ func main() {
 				"threshold":  threshold,
 				"signatures": initialSigs,
 				"status":     "pending",
-				"created_by": "operator@foundereum.org",
+				"created_by": callerEmail,
 				"expires_at": time.Now().Add(24 * time.Hour).Format(time.RFC3339),
 			}
 			memStore.approvals[id] = append(memStore.approvals[id], app)
+
+			if queries != nil {
+				if pUUID, err := uuid.Parse(id); err == nil {
+					pBytes, _ := json.Marshal(payloadMap)
+					sBytes, _ := json.Marshal(initialSigs)
+					_, _ = queries.CreateApproval(r.Context(), db.CreateApprovalParams{
+						ProjectID:  toPgUUID(pUUID),
+						Type:       "withdraw",
+						Payload:    pBytes,
+						Challenge:  []byte(appID),
+						Threshold:  int16(threshold),
+						Signatures: sBytes,
+						Status:     "pending",
+						CreatedBy:  callerEmail,
+						ExpiresAt:  pgtype.Timestamptz{Time: time.Now().Add(24 * time.Hour), Valid: true},
+					})
+				}
+			}
 
 			httpx.JSON(w, http.StatusCreated, app)
 		})
@@ -1805,32 +1966,126 @@ func main() {
 			resultTxID := ""
 			if len(sigs) >= threshold {
 				targetApp["status"] = "executed"
-				resultTxID = fmt.Sprintf("%s@quorum_withdraw_%s", platformAccount, id[:8])
-				targetApp["result_tx_id"] = resultTxID
-				targetApp["hashscan_url"] = fmt.Sprintf("https://hashscan.io/%s/transaction/%s", cfg.HederaNetwork, resultTxID)
+				appType, _ := targetApp["type"].(string)
 
-				// Deduct withdrawal amount from treasury wallet
-				payloadBytes, _ := json.Marshal(targetApp["payload"])
-				var pMap map[string]any
-				_ = json.Unmarshal(payloadBytes, &pMap)
-				amtStr := fmt.Sprintf("%v", pMap["amount_usdc"])
-				if wAmt, err := decimal.NewFromString(amtStr); err == nil && wAmt.GreaterThan(decimal.Zero) {
-					for _, wlt := range memStore.wallets[targetProjID] {
-						if wlt["kind"] == "treasury" {
-							tUSDC, _ := decimal.NewFromString(fmt.Sprintf("%v", wlt["usdc"]))
-							wlt["usdc"] = tUSDC.Sub(wAmt).StringFixed(6)
-							break
+				if appType == "policy_update" {
+					resultTxID = fmt.Sprintf("%s@quorum_policy_%s", platformAccount, id[:8])
+					targetApp["result_tx_id"] = resultTxID
+					targetApp["hashscan_url"] = fmt.Sprintf("https://hashscan.io/%s/transaction/%s", cfg.HederaNetwork, resultTxID)
+
+					payloadBytes, _ := json.Marshal(targetApp["payload"])
+					var pMap map[string]any
+					_ = json.Unmarshal(payloadBytes, &pMap)
+
+					curPol, exists := memStore.policies[targetProjID]
+					if !exists {
+						curPol = map[string]any{}
+					}
+					if spec, ok := pMap["spec"]; ok && spec != nil {
+						curPol["spec"] = spec
+					}
+					privyPID := fmt.Sprintf("%v", pMap["privy_policy_id"])
+					if privyPID == "" || privyPID == "<nil>" {
+						privyPID = "privy_pol_" + targetProjID[:8]
+					}
+					now := time.Now()
+					curPol["privy_policy_id"] = privyPID
+					curPol["pushed_at"] = now.Format(time.RFC3339)
+					curVer := 1
+					if v, ok := pMap["version"].(float64); ok && v > 0 {
+						curVer = int(v)
+					} else if v, ok := curPol["version"].(int); ok {
+						curVer = v + 1
+					}
+					curPol["version"] = curVer
+					memStore.policies[targetProjID] = curPol
+
+					if queries != nil {
+						if pUUID, err := uuid.Parse(targetProjID); err == nil {
+							specBytes, _ := json.Marshal(curPol["spec"])
+							_, _ = queries.UpsertPolicy(r.Context(), db.UpsertPolicyParams{
+								ProjectID:     toPgUUID(pUUID),
+								Spec:          specBytes,
+								PrivyPolicyID: pgtype.Text{String: privyPID, Valid: true},
+								Version:       int32(curVer),
+								PushedAt:      pgtype.Timestamptz{Time: now, Valid: true},
+							})
 						}
+					}
+
+					if rdb != nil {
+						msg, _ := json.Marshal(map[string]any{
+							"type":       "policy.updated",
+							"project_id": targetProjID,
+							"version":    curVer,
+						})
+						_ = rdb.Publish(r.Context(), "events:project:"+targetProjID, msg).Err()
+					}
+				} else {
+					resultTxID = fmt.Sprintf("%s@quorum_withdraw_%s", platformAccount, id[:8])
+					targetApp["result_tx_id"] = resultTxID
+					targetApp["hashscan_url"] = fmt.Sprintf("https://hashscan.io/%s/transaction/%s", cfg.HederaNetwork, resultTxID)
+
+					// Deduct withdrawal amount from treasury wallet
+					payloadBytes, _ := json.Marshal(targetApp["payload"])
+					var pMap map[string]any
+					_ = json.Unmarshal(payloadBytes, &pMap)
+					amtStr := fmt.Sprintf("%v", pMap["amount_usdc"])
+					if wAmt, err := decimal.NewFromString(amtStr); err == nil && wAmt.GreaterThan(decimal.Zero) {
+						for _, wlt := range memStore.wallets[targetProjID] {
+							if wlt["kind"] == "treasury" {
+								tUSDC, _ := decimal.NewFromString(fmt.Sprintf("%v", wlt["usdc"]))
+								wlt["usdc"] = tUSDC.Sub(wAmt).StringFixed(6)
+								break
+							}
+						}
+						if led != nil && queries != nil {
+							if pUUID, err := uuid.Parse(targetProjID); err == nil {
+								if dbWlts, err := queries.GetWalletsByProject(r.Context(), toPgUUID(pUUID)); err == nil {
+									for _, dw := range dbWlts {
+										if dw.Kind == "treasury" {
+											baseUnits := wAmt.Mul(decimal.NewFromInt(1_000_000))
+											_ = led.Withdraw(r.Context(), uuid.UUID(dw.ID.Bytes), "USDC", baseUnits, wAmt, id)
+											break
+										}
+									}
+								}
+							}
+						}
+					}
+
+					if rdb != nil {
+						msg, _ := json.Marshal(map[string]any{
+							"type":       "wallet.balance",
+							"project_id": targetProjID,
+							"action":     "withdraw_settled",
+						})
+						_ = rdb.Publish(r.Context(), "events:project:"+targetProjID, msg).Err()
 					}
 				}
 
-				if rdb != nil {
-					msg, _ := json.Marshal(map[string]any{
-						"type":       "wallet.balance",
-						"project_id": targetProjID,
-						"action":     "withdraw_settled",
-					})
-					_ = rdb.Publish(r.Context(), "events:project:"+targetProjID, msg).Err()
+				if queries != nil {
+					if appUUID, err := uuid.Parse(id); err == nil {
+						sBytes, _ := json.Marshal(sigs)
+						_, _ = queries.UpdateApprovalSignatures(r.Context(), db.UpdateApprovalSignaturesParams{
+							ID:         toPgUUID(appUUID),
+							Signatures: sBytes,
+							Status:     "executed",
+							ResultTxID: pgtype.Text{String: resultTxID, Valid: true},
+						})
+					}
+				}
+			} else {
+				if queries != nil {
+					if appUUID, err := uuid.Parse(id); err == nil {
+						sBytes, _ := json.Marshal(sigs)
+						_, _ = queries.UpdateApprovalSignatures(r.Context(), db.UpdateApprovalSignaturesParams{
+							ID:         toPgUUID(appUUID),
+							Signatures: sBytes,
+							Status:     "pending",
+							ResultTxID: pgtype.Text{String: "", Valid: false},
+						})
+					}
 				}
 			}
 
@@ -1868,6 +2123,18 @@ func main() {
 			}
 
 			targetApp["status"] = "rejected"
+			if queries != nil {
+				if appUUID, err := uuid.Parse(id); err == nil {
+					sigs, _ := targetApp["signatures"].([]map[string]any)
+					sBytes, _ := json.Marshal(sigs)
+					_, _ = queries.UpdateApprovalSignatures(r.Context(), db.UpdateApprovalSignaturesParams{
+						ID:         toPgUUID(appUUID),
+						Signatures: sBytes,
+						Status:     "rejected",
+						ResultTxID: pgtype.Text{String: "", Valid: false},
+					})
+				}
+			}
 			httpx.JSON(w, http.StatusOK, map[string]any{
 				"id":     id,
 				"status": "rejected",

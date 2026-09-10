@@ -141,6 +141,8 @@ export interface Approval {
   payload: {
     to_account?: string;
     amount_usdc?: string;
+    description?: string;
+    spec?: Record<string, unknown>;
   };
   threshold: number;
   signatures: Array<{ email: string; at: string }>;
@@ -344,7 +346,7 @@ class ApiClient {
     });
   }
 
-  async pushPolicy(projectId: string): Promise<{ privy_policy_id: string }> {
+  async pushPolicy(projectId: string): Promise<{ privy_policy_id?: string; status?: string; approval_id?: string; message?: string; version?: number }> {
     return this.request(`/v1/projects/${projectId}/policy/push`, {
       method: 'POST',
     });

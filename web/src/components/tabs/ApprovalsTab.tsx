@@ -11,6 +11,20 @@ export function ApprovalsTab({ approvals, onApprove, onReject }: ApprovalsTabPro
   const pendingApprovals = approvals.filter((a) => a.status === 'pending');
   const historyApprovals = approvals.filter((a) => a.status !== 'pending');
 
+  const formatAction = (app: Approval) => {
+    if (app.type === 'policy_update') {
+      return app.payload?.description || 'POLICY UPDATE: Push updated security policy to Privy TEE Enclave';
+    }
+    return `${app.type.toUpperCase()}: ${app.payload?.amount_usdc || '0'} USDC → ${app.payload?.to_account || 'destination'}`;
+  };
+
+  const formatHistory = (app: Approval) => {
+    if (app.type === 'policy_update') {
+      return app.payload?.description || 'POLICY UPDATE: Security policy updated in Privy TEE';
+    }
+    return `${app.type.toUpperCase()}: ${app.payload?.amount_usdc || '0'} USDC`;
+  };
+
   return (
     <div className="flex flex-col gap-8 font-mono">
       <div className="flex flex-col gap-4">
@@ -20,7 +34,7 @@ export function ApprovalsTab({ approvals, onApprove, onReject }: ApprovalsTabPro
         {pendingApprovals.map((app) => (
           <ApprovalCard
             key={app.id}
-            action={`${app.type.toUpperCase()}: ${app.payload?.amount_usdc || '0'} USDC → ${app.payload?.to_account || 'destination'}`}
+            action={formatAction(app)}
             current={app.signatures?.length || 1}
             threshold={app.threshold || 2}
             initialStatus="pending"
@@ -41,7 +55,7 @@ export function ApprovalsTab({ approvals, onApprove, onReject }: ApprovalsTabPro
         {historyApprovals.map((app) => (
           <ApprovalCard
             key={app.id}
-            action={`${app.type.toUpperCase()}: ${app.payload?.amount_usdc || '0'} USDC`}
+            action={formatHistory(app)}
             current={app.signatures?.length || app.threshold}
             threshold={app.threshold || 2}
             initialStatus={app.status as any}

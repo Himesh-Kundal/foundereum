@@ -319,3 +319,172 @@ func (l *Ledger) RecordPayment(ctx context.Context, rec PaymentRecord) (uuid.UUI
 	return callID, nil
 }
 
+// Transfer moves funds from fromWalletID to toWalletID within a single transaction, recording debit and credit ledger entries.
+func (l *Ledger) Transfer(ctx context.Context, fromWalletID, toWalletID uuid.UUID, asset string, baseUnits decimal.Decimal, amountUSD decimal.Decimal, refType, refID string) error {
+	tx, err := l.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	qtx := l.queries.WithTx(tx)
+	pgFromID := pgtype.UUID{Bytes: fromWalletID, Valid: true}
+	pgToID := pgtype.UUID{Bytes: toWalletID, Valid: true}
+
+	// Deterministic locking order to prevent deadlocks
+	firstID, secondID := pgFromID, pgToID
+	if fromWalletID.String() > toWalletID.String() {
+		firstID, secondID = pgToID, pgFromID
+	}
+
+	w1, err := qtx.LockWalletForUpdate(ctx, firstID)
+	if err != nil {
+		return fmt.Errorf("lock wallet 1: %w", err)
+	}
+	w2, err := qtx.LockWalletForUpdate(ctx, secondID)
+	if err != nil {
+		return fmt.Errorf("lock wallet 2: %w", err)
+	}
+
+	var fromWallet, toWallet db.Wallets
+	if firstID == pgFromID {
+		fromWallet, toWallet = w1, w2
+	} else {
+		fromWallet, toWallet = w2, w1
+	}
+
+	fromUSDC := FromPgNumeric(fromWallet.UsdcBalance)
+	fromHBAR := FromPgNumeric(fromWallet.HbarBalance)
+	toUSDC := FromPgNumeric(toWallet.UsdcBalance)
+	toHBAR := FromPgNumeric(toWallet.HbarBalance)
+
+	switch asset {
+	case "USDC":
+		if fromUSDC.LessThan(baseUnits) {
+			return ErrInsufficientBalance
+		}
+		fromUSDC = fromUSDC.Sub(baseUnits)
+		toUSDC = toUSDC.Add(baseUnits)
+	case "HBAR":
+		if fromHBAR.LessThan(baseUnits) {
+			return ErrInsufficientBalance
+		}
+		fromHBAR = fromHBAR.Sub(baseUnits)
+		toHBAR = toHBAR.Add(baseUnits)
+	default:
+		return fmt.Errorf("unsupported asset: %s", asset)
+	}
+
+	_, err = qtx.UpdateWalletBalances(ctx, db.UpdateWalletBalancesParams{
+		ID:          pgFromID,
+		UsdcBalance: ToPgNumeric(fromUSDC),
+		HbarBalance: ToPgNumeric(fromHBAR),
+	})
+	if err != nil {
+		return fmt.Errorf("update from wallet balances: %w", err)
+	}
+
+	_, err = qtx.UpdateWalletBalances(ctx, db.UpdateWalletBalancesParams{
+		ID:          pgToID,
+		UsdcBalance: ToPgNumeric(toUSDC),
+		HbarBalance: ToPgNumeric(toHBAR),
+	})
+	if err != nil {
+		return fmt.Errorf("update to wallet balances: %w", err)
+	}
+
+	negAmount := baseUnits.Neg()
+	negAmountUSD := amountUSD.Abs().Neg()
+	_, err = qtx.InsertLedgerEntry(ctx, db.InsertLedgerEntryParams{
+		WalletID:  pgFromID,
+		Asset:     asset,
+		Amount:    ToPgNumeric(negAmount),
+		AmountUsd: ToPgNumeric(negAmountUSD),
+		Kind:      "topup",
+		RefType:   pgtype.Text{String: refType, Valid: true},
+		RefID:     pgtype.Text{String: refID, Valid: true},
+	})
+	if err != nil {
+		return fmt.Errorf("insert debit ledger entry: %w", err)
+	}
+
+	_, err = qtx.InsertLedgerEntry(ctx, db.InsertLedgerEntryParams{
+		WalletID:  pgToID,
+		Asset:     asset,
+		Amount:    ToPgNumeric(baseUnits),
+		AmountUsd: ToPgNumeric(amountUSD),
+		Kind:      "topup",
+		RefType:   pgtype.Text{String: refType, Valid: true},
+		RefID:     pgtype.Text{String: refID, Valid: true},
+	})
+	if err != nil {
+		return fmt.Errorf("insert credit ledger entry: %w", err)
+	}
+
+	return tx.Commit(ctx)
+}
+
+// Withdraw debits a wallet balance and records an immutable ledger entry for a withdrawal.
+func (l *Ledger) Withdraw(ctx context.Context, walletID uuid.UUID, asset string, baseUnits decimal.Decimal, amountUSD decimal.Decimal, refID string) error {
+	tx, err := l.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	qtx := l.queries.WithTx(tx)
+	pgWalletID := pgtype.UUID{Bytes: walletID, Valid: true}
+
+	wallet, err := qtx.LockWalletForUpdate(ctx, pgWalletID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrWalletNotFound
+		}
+		return fmt.Errorf("lock wallet: %w", err)
+	}
+
+	curUSDC := FromPgNumeric(wallet.UsdcBalance)
+	curHBAR := FromPgNumeric(wallet.HbarBalance)
+
+	switch asset {
+	case "USDC":
+		if curUSDC.LessThan(baseUnits) {
+			return ErrInsufficientBalance
+		}
+		curUSDC = curUSDC.Sub(baseUnits)
+	case "HBAR":
+		if curHBAR.LessThan(baseUnits) {
+			return ErrInsufficientBalance
+		}
+		curHBAR = curHBAR.Sub(baseUnits)
+	default:
+		return fmt.Errorf("unsupported asset: %s", asset)
+	}
+
+	_, err = qtx.UpdateWalletBalances(ctx, db.UpdateWalletBalancesParams{
+		ID:          pgWalletID,
+		UsdcBalance: ToPgNumeric(curUSDC),
+		HbarBalance: ToPgNumeric(curHBAR),
+	})
+	if err != nil {
+		return fmt.Errorf("update wallet balance: %w", err)
+	}
+
+	negAmount := baseUnits.Neg()
+	negAmountUSD := amountUSD.Abs().Neg()
+	_, err = qtx.InsertLedgerEntry(ctx, db.InsertLedgerEntryParams{
+		WalletID:  pgWalletID,
+		Asset:     asset,
+		Amount:    ToPgNumeric(negAmount),
+		AmountUsd: ToPgNumeric(negAmountUSD),
+		Kind:      "withdraw",
+		RefType:   pgtype.Text{String: "withdrawals", Valid: true},
+		RefID:     pgtype.Text{String: refID, Valid: true},
+	})
+	if err != nil {
+		return fmt.Errorf("insert ledger entry: %w", err)
+	}
+
+	return tx.Commit(ctx)
+}
+

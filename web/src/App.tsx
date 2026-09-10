@@ -300,8 +300,7 @@ export default function App() {
     try {
       await api.requestFaucet(activeProjectId);
       showToast('Testnet Faucet: +50.00 USDC & +10.00 HBAR minted');
-      const walletList = await api.getWallets(activeProjectId);
-      setWallets(walletList);
+      await loadProjectData(activeProjectId, false);
     } catch (err: unknown) {
       showToast(`Faucet error: ${(err as Error).message}`);
     }
@@ -312,8 +311,7 @@ export default function App() {
     try {
       await api.topUpAgent(activeProjectId, amount);
       showToast(`Transferred ${amount} USDC from Treasury to Agent`);
-      const walletList = await api.getWallets(activeProjectId);
-      setWallets(walletList);
+      await loadProjectData(activeProjectId, false);
     } catch (err: unknown) {
       showToast(`Top up error: ${(err as Error).message}`);
     }
@@ -329,8 +327,7 @@ export default function App() {
         setApprovals(appList);
       } else {
         showToast(`Withdrawal of ${amount} USDC executed`);
-        const walletList = await api.getWallets(activeProjectId);
-        setWallets(walletList);
+        await loadProjectData(activeProjectId, false);
       }
     } catch (err: unknown) {
       showToast(`Withdraw error: ${(err as Error).message}`);
@@ -347,11 +344,17 @@ export default function App() {
         } catch {}
       }
       const res = await api.pushPolicy(activeProjectId);
-      showToast(`Policy pushed to Privy TEE Enclave (Policy ID: ${res.privy_policy_id})`);
-      const pol = await api.getPolicy(activeProjectId);
-      setPolicyData(pol);
-      const limit = (pol?.spec as any)?.max_daily_usd || pol?.spec?.velocity?.max_usd_per_24h;
-      if (limit) setSpendLimit(parseFloat(String(limit)));
+      if (res.status === 'pending_approval') {
+        showToast(res.message || 'Policy update requires quorum: queued in Approvals inbox');
+        const appList = await api.getApprovals(activeProjectId);
+        setApprovals(appList);
+      } else {
+        showToast(`Policy pushed to Privy TEE Enclave (Policy ID: ${res.privy_policy_id})`);
+        const pol = await api.getPolicy(activeProjectId);
+        setPolicyData(pol);
+        const limit = (pol?.spec as any)?.max_daily_usd || pol?.spec?.velocity?.max_usd_per_24h;
+        if (limit) setSpendLimit(parseFloat(String(limit)));
+      }
     } catch (err: unknown) {
       showToast(`Push error: ${(err as Error).message}`);
     }
@@ -378,12 +381,7 @@ export default function App() {
       const res = await api.approve(approvalId, sig);
       showToast(`Approval signature registered: ${res.status === 'executed' ? 'Executed: ' + res.result_tx_id : res.signatures_count + ' signature(s) recorded'}`);
       if (activeProjectId) {
-        const [appList, walletList] = await Promise.all([
-          api.getApprovals(activeProjectId),
-          api.getWallets(activeProjectId),
-        ]);
-        setApprovals(appList);
-        setWallets(walletList);
+        await loadProjectData(activeProjectId, false);
       }
     } catch (err: unknown) {
       showToast(`Approve error: ${(err as Error).message}`);

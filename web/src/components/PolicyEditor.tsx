@@ -257,13 +257,13 @@ export const PolicyEditor = ({ policy, onPushToPrivy, payToAddress: propPayTo }:
         <div className="mt-6 pt-4 border-t border-ink flex items-center justify-between">
           <div className="text-xs text-ink-mut font-mono">
             {isPushed ? (
-              <span className="text-ok font-bold">✓ Policy pushed to Privy TEE Enclave! Version 2.1.1</span>
+              <span className="text-ok font-bold">✓ Policy update submitted! Check Approvals tab for quorum.</span>
             ) : (
-              <span>Policy version 2.1.0 · pushed 12m ago</span>
+              <span>Policy version {policy?.version ? `2.1.${policy.version}` : '2.1.0'} · quorum protected</span>
             )}
           </div>
           <BlockButton onClick={handlePush}>
-            {isPushed ? 'PUSHED ✓' : 'PUSH TO PRIVY'}
+            {isPushed ? 'SUBMITTED ✓' : 'PUSH TO PRIVY'}
           </BlockButton>
         </div>
       </Cell>
