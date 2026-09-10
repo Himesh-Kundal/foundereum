@@ -345,6 +345,48 @@ func main() {
 			}
 		}
 
+		// Preload approvals from Postgres into memStore
+		appRows, err := pgPool.Query(ctx, "SELECT id, project_id, type, payload, threshold, signatures, status, result_tx_id, created_by, expires_at FROM approvals ORDER BY created_at DESC")
+		if err == nil {
+			defer appRows.Close()
+			for appRows.Next() {
+				var aID, pID uuid.UUID
+				var aType, status, createdBy string
+				var payloadBytes, sigBytes []byte
+				var threshold int16
+				var resultTxID pgtype.Text
+				var expiresAt pgtype.Timestamptz
+				if err := appRows.Scan(&aID, &pID, &aType, &payloadBytes, &threshold, &sigBytes, &status, &resultTxID, &createdBy, &expiresAt); err == nil {
+					var pMap map[string]any
+					_ = json.Unmarshal(payloadBytes, &pMap)
+					var sigs []map[string]any
+					_ = json.Unmarshal(sigBytes, &sigs)
+					hUrl := ""
+					if resultTxID.Valid && resultTxID.String != "" {
+						hUrl = fmt.Sprintf("https://hashscan.io/%s/transaction/%s", cfg.HederaNetwork, resultTxID.String)
+					}
+					expStr := ""
+					if expiresAt.Valid {
+						expStr = expiresAt.Time.Format(time.RFC3339)
+					}
+					aMap := map[string]any{
+						"id":           aID.String(),
+						"project_id":   pID.String(),
+						"type":         aType,
+						"payload":      pMap,
+						"threshold":    int(threshold),
+						"signatures":   sigs,
+						"status":       status,
+						"result_tx_id": resultTxID.String,
+						"hashscan_url": hUrl,
+						"created_by":   createdBy,
+						"expires_at":   expStr,
+					}
+					memStore.approvals[pID.String()] = append(memStore.approvals[pID.String()], aMap)
+				}
+			}
+		}
+
 		_ = demoUserUUID
 	}
 
@@ -1893,6 +1935,39 @@ func main() {
 			if _, ok := memStore.getProjectForOrg(id, claims.OrgID); !ok {
 				httpx.Err(w, http.StatusNotFound, "NOT_FOUND", "project not found")
 				return
+			}
+			if queries != nil {
+				if pUUID, err := uuid.Parse(id); err == nil {
+					dbApps, err := queries.GetApprovalsByProject(r.Context(), toPgUUID(pUUID))
+					if err == nil && len(dbApps) > 0 {
+						var resApps []map[string]any
+						for _, a := range dbApps {
+							var pMap map[string]any
+							_ = json.Unmarshal(a.Payload, &pMap)
+							var sigs []map[string]any
+							_ = json.Unmarshal(a.Signatures, &sigs)
+							hUrl := ""
+							if a.ResultTxID.Valid && a.ResultTxID.String != "" {
+								hUrl = fmt.Sprintf("https://hashscan.io/%s/transaction/%s", cfg.HederaNetwork, a.ResultTxID.String)
+							}
+							resApps = append(resApps, map[string]any{
+								"id":           fromPgUUID(a.ID),
+								"project_id":   id,
+								"type":         a.Type,
+								"payload":      pMap,
+								"threshold":    int(a.Threshold),
+								"signatures":   sigs,
+								"status":       a.Status,
+								"result_tx_id": a.ResultTxID.String,
+								"hashscan_url": hUrl,
+								"created_by":   a.CreatedBy,
+								"expires_at":   a.ExpiresAt.Time.Format(time.RFC3339),
+							})
+						}
+						httpx.JSON(w, http.StatusOK, resApps)
+						return
+					}
+				}
 			}
 			memStore.mu.RLock()
 			apps := memStore.approvals[id]

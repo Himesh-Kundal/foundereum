@@ -459,6 +459,45 @@ func (q *Queries) GetApproval(ctx context.Context, id pgtype.UUID) (Approvals, e
 	return i, err
 }
 
+const getApprovalsByProject = `-- name: GetApprovalsByProject :many
+SELECT id, project_id, type, payload, challenge, threshold, signatures, status, result_tx_id, created_by, created_at, expires_at FROM approvals
+WHERE project_id = $1
+ORDER BY created_at DESC
+`
+
+func (q *Queries) GetApprovalsByProject(ctx context.Context, projectID pgtype.UUID) ([]Approvals, error) {
+	rows, err := q.db.Query(ctx, getApprovalsByProject, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Approvals
+	for rows.Next() {
+		var i Approvals
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProjectID,
+			&i.Type,
+			&i.Payload,
+			&i.Challenge,
+			&i.Threshold,
+			&i.Signatures,
+			&i.Status,
+			&i.ResultTxID,
+			&i.CreatedBy,
+			&i.CreatedAt,
+			&i.ExpiresAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getCall = `-- name: GetCall :one
 SELECT id, project_id, api_key_id, idempotency_key, tool, args, status, error, result, estimate_usd, actual_usd, metered_bytes, tx_hash, latency_ms, started_at, finished_at FROM calls WHERE id = $1
 `

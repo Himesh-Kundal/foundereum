@@ -22,6 +22,7 @@ type Querier interface {
 	GetAPIKeysByProject(ctx context.Context, projectID pgtype.UUID) ([]GetAPIKeysByProjectRow, error)
 	GetAllActiveProjects(ctx context.Context) ([]Projects, error)
 	GetApproval(ctx context.Context, id pgtype.UUID) (Approvals, error)
+	GetApprovalsByProject(ctx context.Context, projectID pgtype.UUID) ([]Approvals, error)
 	GetCall(ctx context.Context, id pgtype.UUID) (Calls, error)
 	GetCallByIdempotency(ctx context.Context, arg GetCallByIdempotencyParams) (Calls, error)
 	GetCallsByProject(ctx context.Context, arg GetCallsByProjectParams) ([]Calls, error)

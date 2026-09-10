@@ -230,6 +230,11 @@ SELECT * FROM approvals
 WHERE project_id = $1 AND status = 'pending'
 ORDER BY created_at DESC;
 
+-- name: GetApprovalsByProject :many
+SELECT * FROM approvals
+WHERE project_id = $1
+ORDER BY created_at DESC;
+
 -- name: UpdateApprovalSignatures :one
 UPDATE approvals
 SET signatures = $2,
