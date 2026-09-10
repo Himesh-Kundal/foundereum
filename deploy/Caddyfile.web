@@ -11,7 +11,12 @@
         Referrer-Policy strict-origin-when-cross-origin
     }
 
+    # Do not cache index.html so updates are visible immediately
+    @html path *.html
+    header @html Cache-Control "no-cache, no-store, must-revalidate"
+
     # Cache static assets aggressively
     @static path *.js *.css *.woff2 *.png *.svg *.ico
     header @static Cache-Control "public, max-age=31536000, immutable"
 }
+
