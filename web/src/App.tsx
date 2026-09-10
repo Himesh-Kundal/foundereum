@@ -49,6 +49,7 @@ export default function App() {
   const [mcpConfigText, setMcpConfigText] = useState<string>('');
   const [spend24h, setSpend24h] = useState<number>(0.0);
   const [spendLimit, setSpendLimit] = useState<number>(25.00);
+  const [rotatedKey, setRotatedKey] = useState<string | null>(null);
 
   // Auth & Org State
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
@@ -262,10 +263,13 @@ export default function App() {
   const handleRotateKey = async (keyId: string) => {
     if (!activeProjectId) return;
     try {
-      await api.rotateKey(activeProjectId, keyId);
+      const res = await api.rotateKey(activeProjectId, keyId);
       showToast('API Key rotated: 1-hour grace window active for old key');
       const keyList = await api.getKeys(activeProjectId);
       setKeys(keyList);
+      if (res && res.new_key && res.new_key.key) {
+        setRotatedKey(res.new_key.key);
+      }
     } catch (err: unknown) {
       showToast(`Rotate error: ${(err as Error).message}`);
     }
@@ -523,6 +527,8 @@ export default function App() {
         onPushPolicy={handlePushPolicy}
         onFaucet={handleFaucet}
         onInviteMember={handleInviteMember}
+        rotatedKey={rotatedKey}
+        onCloseRotatedKeyModal={() => setRotatedKey(null)}
       />
       <Toast message={toastMessage} />
     </>

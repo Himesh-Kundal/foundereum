@@ -110,12 +110,58 @@ func main() {
 			return
 		}
 
+		// Resolve wallet if auth header is present
+		privyWalletID := ""
+		authHeader := r.Header.Get("Authorization")
+		if strings.HasPrefix(authHeader, "Bearer ") {
+			rawKey := strings.TrimPrefix(authHeader, "Bearer ")
+			kh := sha256.Sum256([]byte(rawKey))
+			if queries != nil {
+				if row, err := queries.GetKeyContext(r.Context(), kh[:]); err == nil {
+					if row.PrivyWalletID.Valid && row.PrivyWalletID.String != "" {
+						privyWalletID = row.PrivyWalletID.String
+					}
+				}
+			}
+			if privyWalletID == "" && rdb != nil {
+				khHex := hex.EncodeToString(kh[:])
+				if val, err := rdb.Get(r.Context(), "key_ctx:"+khHex).Result(); err == nil && val != "" {
+					var rCtx struct {
+						PrivyWalletID string `json:"privy_wallet_id"`
+						WalletID      string `json:"wallet_id"`
+					}
+					if json.Unmarshal([]byte(val), &rCtx) == nil {
+						if rCtx.PrivyWalletID != "" {
+							privyWalletID = rCtx.PrivyWalletID
+						} else if rCtx.WalletID != "" {
+							privyWalletID = rCtx.WalletID
+						}
+					}
+				}
+			}
+		}
+
 		// Sign transfer hash using Privy / local wallet signer
 		bodyHash := sha256.Sum256([]byte("mock_tx_body_" + req.Nonce))
-		sig, err := signer.RawSign(r.Context(), "agent_wallet", bodyHash[:])
-		if err != nil {
-			httpx.Err(w, http.StatusInternalServerError, "SIGNING_FAILED", err.Error())
-			return
+		var sig []byte
+		var err error
+		if signer != nil && privyWalletID != "" && privyWalletID != "agent_wallet" {
+			sig, err = signer.RawSign(r.Context(), privyWalletID, bodyHash[:])
+		}
+		if err != nil || len(sig) == 0 {
+			if err != nil {
+				logger.Warn("privy signing failed, falling back to local signer", "err", err, "wallet_id", privyWalletID)
+			}
+			localSigner, lErr := wallet.NewLocalSigner("")
+			if lErr != nil {
+				httpx.Err(w, http.StatusInternalServerError, "SIGNING_FAILED", lErr.Error())
+				return
+			}
+			sig, err = localSigner.RawSign(r.Context(), "", bodyHash[:])
+			if err != nil {
+				httpx.Err(w, http.StatusInternalServerError, "SIGNING_FAILED", err.Error())
+				return
+			}
 		}
 
 		blob := x402.PaymentBlob{

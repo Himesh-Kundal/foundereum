@@ -13,6 +13,7 @@ import { NewKeyModal } from '../components/modals/NewKeyModal';
 import { TopUpModal } from '../components/modals/TopUpModal';
 import { WithdrawModal } from '../components/modals/WithdrawModal';
 import { OrgMembersModal } from '../components/OrgMembersModal';
+import { RotatedKeyModal } from '../components/modals/RotatedKeyModal';
 import type { 
   Tab, 
   UserSession, 
@@ -58,6 +59,8 @@ export interface DashboardPageProps {
   onPushPolicy: (policyJson: string) => Promise<void>;
   onFaucet: () => Promise<void>;
   onInviteMember: (email: string, role: string) => Promise<void>;
+  rotatedKey: string | null;
+  onCloseRotatedKeyModal: () => void;
 }
 
 export function DashboardPage({
@@ -92,6 +95,8 @@ export function DashboardPage({
   onPushPolicy,
   onFaucet,
   onInviteMember,
+  rotatedKey,
+  onCloseRotatedKeyModal,
 }: DashboardPageProps) {
   const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false);
   const [isNewKeyModalOpen, setIsNewKeyModalOpen] = useState(false);
@@ -261,6 +266,12 @@ export function DashboardPage({
         currentOrg={currentOrg}
         currentUser={user || { email: 'operator@foundereum.org', role: 'owner' }}
         onInviteMember={onInviteMember}
+      />
+
+      <RotatedKeyModal
+        isOpen={!!rotatedKey}
+        onClose={onCloseRotatedKeyModal}
+        rotatedKey={rotatedKey}
       />
     </div>
   );
