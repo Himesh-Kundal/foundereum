@@ -1,16 +1,48 @@
-# Foundereum — x402-Gated Agentic API Platform on Hedera
+<p align="center">
+  <img src="public/cover_photo.png" alt="Foundereum — x402-Gated Agentic API Platform on Hedera" width="100%" />
+</p>
 
-> Built for ETHOnline 2026. Targeting partner prizes: **Hedera**, **The Graph**, and **Privy**.
+<p align="center">
+  <strong>Autonomous AI agent micro-metering, cryptographic spending policies, and instant x402 settlement on Hedera.</strong>
+</p>
 
-Foundereum gives AI agents (Claude Desktop, Claude Code, or any MCP client) a Privy-secured wallet, a cryptographic spending policy, and an API key. Every tool call—swaps, token transfers, contract deployments, and live blockchain queries from The Graph—is metered per-request and settled via x402 on Hedera testnet through Blocky402.
+<p align="center">
+  <a href="https://app.foundereum.org"><strong>Live Dashboard</strong></a> •
+  <a href="https://api.foundereum.org/healthz"><strong>API Status</strong></a> •
+  <a href="https://gw.foundereum.org/healthz"><strong>Gateway</strong></a> •
+  <a href="https://mcp.foundereum.org/healthz"><strong>MCP Server</strong></a> •
+  <a href="https://hashscan.io/testnet/topic/0.0.10442234"><strong>HCS Audit Topic</strong></a>
+</p>
 
 ---
 
-## 1. System Architecture
+## Overview
+
+**Foundereum** is an institutional-grade, x402-gated agentic execution platform. AI agents (Claude Desktop, Claude Code, AutoGPT, or any Model Context Protocol client) are provisioned with:
+1. **A Privy TEE-Secured Server Wallet** — Keys are permanently isolated in hardware enclaves.
+2. **Cryptographic Spend Policies** — 24-hour spend limits, contract allowlists, and selector allowlists enforced in hardware before signing.
+3. **Double-Entry Financial Ledger** — Invariant-backed PostgreSQL ledger enforcing balance non-negativity and replay prevention.
+4. **x402 Micropayment Engine** — Pay-per-call settlement in HTS USDC over Hedera Testnet via the Blocky402 facilitator.
+5. **Decentralized Intelligence** — High-speed live blockchain data powered by The Graph (Messari Standardized Subgraphs) with prompt-injection defense delimiters.
+6. **Immutable Public Audit** — Every settled call and payment proof is mirrored in real time to Hedera Consensus Service (HCS).
+
+---
+
+## Target Hackathon Tracks & Partner Integrations
+
+| Partner | Category & Focus | Key Integration | Code References |
+|---------|------------------|-----------------|-----------------|
+| **Hedera** | 🤖 **AI & Agentic Payments on Hedera** ($6,000) | Native HTS USDC micropayments, Blocky402 facilitator settlement, HCS public audit topic, ERC-8004 agent registry on Hedera EVM (Chain ID 296) | [`internal/x402/hedera/transfer.go#L29`](https://github.com/Himesh-Kundal/foundereum/blob/main/internal/x402/hedera/transfer.go#L29)<br>[`internal/hcs/hcs.go#L53`](https://github.com/Himesh-Kundal/foundereum/blob/main/internal/hcs/hcs.go#L53) |
+| **The Graph** | 🤖 **Best AI Tooling / Use Case** ($5,000)<br>🧩 **Standardized Graph Products** ($5,000) | Model Context Protocol (MCP) server integration, Messari Standardized DEX Subgraphs for TVL/pool health, `data (untrusted):` prompt injection hygiene | [`sidecars/subgraph-mcp/server.js#L53`](https://github.com/Himesh-Kundal/foundereum/blob/main/sidecars/subgraph-mcp/server.js#L53)<br>[`internal/tools/graph/graph_tools.go#L23`](https://github.com/Himesh-Kundal/foundereum/blob/main/internal/tools/graph/graph_tools.go#L23) |
+| **Privy** | 🏢 **Best B2B Financial Product** ($2,500)<br>💸 **Best Financial Flow** ($2,500) | TEE Server Wallets, strict `default_action: DENY` policy engine, and in-browser WebCrypto P-256 multi-party quorum signatures for treasury approvals | [`internal/privy/client.go#L43`](https://github.com/Himesh-Kundal/foundereum/blob/main/internal/privy/client.go#L43)<br>[`web/src/components/ApprovalCard.tsx#L60`](https://github.com/Himesh-Kundal/foundereum/blob/main/web/src/components/ApprovalCard.tsx#L60) |
+
+---
+
+## Architecture & Data Flow
 
 ```
 [Claude Desktop / AI Agent]
-         │ (JSON-RPC)
+         │ (JSON-RPC MCP Protocol)
          ▼
 [foundereum-mcp (Bridge)]
          │ (Streamable HTTP /mcp)
@@ -22,90 +54,28 @@ Foundereum gives AI agents (Claude Desktop, Claude Code, or any MCP client) a Pr
                                   └──► [SaucerSwap Router]
 ```
 
-### Components
-1. **`cmd/api` (:8080)**: Control plane REST API for Privy auth sessions, orgs, projects, wallets, Privy policies, API keys, and approvals.
-2. **`cmd/gateway` (:8081)**: High-throughput machine gateway implementing x402 HTTP challenge & settlement, Redis token-bucket rate limiting, idempotency, and metered tool execution.
-3. **`cmd/mcp` (:8082)**: Model Context Protocol server exposing tool schemas over Streamable HTTP and managing the x402 client loop.
-4. **`cmd/worker`**: Asynq background worker handling Hedera account bootstrapping, HCS audit logging, and mirror node balance reconciliation.
-5. **`contracts/`**: Foundry project hosting `AgentIdentityRegistry.sol` (ERC-8004) deployed on Hedera EVM (Chain ID 296).
-6. **`web/`**: React 18 + TypeScript + Vite + Tailwind dashboard.
-7. **`bridge/`**: `foundereum-mcp` CLI stdio-to-HTTP proxy for Claude Desktop.
+### The x402 Machine Settlement Cycle:
+1. **Challenge (`402 Payment Required`)**: Agent calls a metered tool (e.g. `swap_tokens` or `analyze_pool_health`). Gateway returns HTTP 402 with required HTS token, destination, exact amount, and cryptographic nonce.
+2. **TEE Signature Generation**: The agent runtime requests an HTS transfer transaction signed inside Privy's hardware enclave without exposing private keys.
+3. **Atomic Facilitator Settlement**: Gateway submits the signed payload to Blocky402 facilitator, executing the transfer on Hedera testnet.
+4. **Ledger & Audit Logging**: The double-entry ledger is credited/debited in PostgreSQL, and a consensus record is immutably logged to Hedera Consensus Service (`0.0.10442234`).
+5. **Tool Execution (`200 OK`)**: The requested action executes and returns structured data to the agent.
 
 ---
 
-## 2. Why Privy / Why Hedera / Why The Graph
+## Core Components
 
-### Why Privy?
-- **Server Wallets in TEE**: Provides hardware-isolated key custody for autonomous agents without exposing root credentials to runtime code.
-- **Policy Engine**: Enforces strict `default_action: DENY` rules on contract addresses, function selectors, and 24-hour spending caps that LLMs cannot override.
-- **Key Quorums**: Requires m-of-n approval signatures using WebCrypto P-256 member keys for high-value treasury withdrawals.
-
-### Why Hedera?
-- **Sub-Cent Native Micro-Payments**: Native HTS USDC token transfers allow economic viability for calls costing fractions of a cent ($0.00001).
-- **Blocky402 Facilitator Settlement**: Partially signed `TransferTransaction` payloads are settled atomically.
-- **Verifiable HCS Audit Trail**: Every settled payment publishes an immutable audit receipt to a Hedera Consensus Service (HCS) topic.
-- **Hedera EVM & ERC-8004**: On-chain agent identity registration and SaucerSwap DEX liquidity routing.
-
-### Why The Graph?
-- **Live On-Chain Data for Agents**: Powers DeFi intelligence without custom indexer infrastructure.
-- **Messari Standardized Subgraphs**: `analyze_pool_health` and `compare_protocol_tvl` provide cross-protocol analytical verdicts across Uniswap v3, Sushiswap, Aerodrome, and Curve.
-- **Untrusted Input Hygiene**: Subgraph outputs returned to LLMs are prefixed with `data (untrusted):` to prevent prompt injection.
+- **`cmd/api` (:8080)**: Control plane REST API for Privy auth sessions, orgs, projects, wallets, Privy policies, API keys, and multi-party quorum approvals.
+- **`cmd/gateway` (:8081)**: High-throughput machine gateway implementing x402 HTTP challenge & settlement, Redis token-bucket rate limiting, idempotency, and metered tool execution.
+- **`cmd/mcp` (:8082)**: Model Context Protocol server exposing tool schemas over Streamable HTTP and managing the automated x402 client loop.
+- **`cmd/worker`**: Asynq background worker handling Hedera account bootstrapping, HCS audit logging, and mirror node balance reconciliation.
+- **`contracts/`**: Foundry project hosting `AgentIdentityRegistry.sol` (ERC-8004) deployed on Hedera EVM (Chain ID 296).
+- **`web/`**: Foundry Paper aesthetic React 18 + TypeScript + Vite + Tailwind dashboard with live SSE streaming.
+- **`bridge/`**: `foundereum-mcp` CLI stdio-to-HTTP proxy for seamless Claude Desktop integration.
 
 ---
 
-## 3. Quickstart
-
-### Prerequisites
-- Go 1.23+
-- Node.js 20+ & pnpm
-- Foundry (`forge`)
-- Docker & Docker Compose
-
-### Local Development
-```bash
-# 1. Copy environment template
-cp .env.example .env
-
-# 2. Run unit and integration tests
-make test
-make contracts
-
-# 3. Build all binaries
-make build
-
-# 4. Start frontend
-cd web && pnpm install && pnpm dev
-```
-
-### Docker Compose
-```bash
-make dev
-# Launches postgres, redis, api, gateway, mcp, worker, and subgraph-mcp sidecar
-```
-
----
-
-## 4. Claude Desktop Configuration
-
-Add the following to your `claude_desktop_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "foundereum": {
-      "command": "npx",
-      "args": ["-y", "foundereum-mcp", "--url", "http://localhost:8082/mcp"],
-      "env": {
-        "FOUNDEREUM_API_KEY": "fnd_sk_live_sample"
-      }
-    }
-  }
-}
-```
-
----
-
-## 5. Tool Catalog & Metered Pricing
+## Metered Toolbelt & Pricing
 
 | Tool | Pricing Model | Description |
 |------|--------------|-------------|
@@ -121,5 +91,63 @@ Add the following to your `claude_desktop_config.json`:
 
 ---
 
-## 6. License
-BUSL-1.1 (Business Source License 1.1) — see `LICENCE.md` and `LICENCE_RATIONALE.md`.
+## Quickstart
+
+### Prerequisites
+- **Go 1.23+**
+- **Node.js 20+ & pnpm**
+- **Foundry (`forge`)**
+- **Docker & Docker Compose**
+
+### Running Locally with Docker
+```bash
+# 1. Clone repository
+git clone https://github.com/Himesh-Kundal/foundereum.git
+cd foundereum
+
+# 2. Configure environment
+cp .env.example .env
+
+# 3. Start development stack
+make dev
+# Spins up PostgreSQL, Redis, API, Gateway, MCP, Worker, and Subgraph MCP sidecar
+```
+
+### Claude Desktop Integration
+Add Foundereum to your `claude_desktop_config.json`:
+```json
+{
+  "mcpServers": {
+    "foundereum": {
+      "command": "npx",
+      "args": ["-y", "foundereum-mcp", "--url", "https://mcp.foundereum.org/mcp"],
+      "env": {
+        "FOUNDEREUM_API_KEY": "fnd_sk_live_your_key_here"
+      }
+    }
+  }
+}
+```
+
+---
+
+## Verification & Testing
+
+Foundereum features an exhaustive 8-layer verification matrix covering DevOps, DB/ledger invariants, REST API, x402 gateway, tool execution, MCP loop, frontend UI journeys, and threat models:
+
+```bash
+# Run unit & integration tests
+make test
+
+# Run smart contract tests
+make contracts
+
+# Run end-to-end headless browser test suite
+cd web && node scripts/test-frontend.cjs
+```
+
+---
+
+## License
+
+BUSL-1.1 (Business Source License 1.1) — see [`LICENSE`](LICENSE) and [`LICENSE_RATIONALE.md`](LICENSE_RATIONALE.md).

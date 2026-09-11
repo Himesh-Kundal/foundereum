@@ -54,3 +54,4 @@ caddy_config/
 data/
 logs/
 *.log
+PARTNERS.txt
