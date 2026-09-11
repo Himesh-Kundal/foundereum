@@ -19,6 +19,7 @@ import (
 	"github.com/foundereum/foundereum/internal/ledger"
 	"github.com/foundereum/foundereum/internal/policy"
 	"github.com/foundereum/foundereum/internal/privy"
+	"github.com/shopspring/decimal"
 	"github.com/foundereum/foundereum/internal/tools"
 	_ "github.com/foundereum/foundereum/internal/tools/deploy"
 	_ "github.com/foundereum/foundereum/internal/tools/graph"
@@ -248,6 +249,7 @@ end
 						HederaAccountID string `json:"hedera_account_id"`
 						EVMAddress      string `json:"evm_address"`
 						Status          string `json:"status"`
+						Policy          string `json:"policy"`
 					}
 					if json.Unmarshal([]byte(val), &rCtx) == nil && (rCtx.Status == "active" || rCtx.Status == "ready") {
 						pUUID, _ := uuid.Parse(rCtx.ProjectID)
@@ -258,6 +260,7 @@ end
 							HederaAccountID: pgtype.Text{String: rCtx.HederaAccountID, Valid: true},
 							EvmAddress:      rCtx.EVMAddress,
 							ProjectStatus:   "active",
+							Policy:          []byte(rCtx.Policy),
 						}
 					}
 				}
@@ -311,8 +314,23 @@ end
 			}
 
 			// Pre-check policy if configured
-			if len(keyCtx.Policy) > 0 && ledg != nil {
-				spend24h, _ := ledg.SpendLast24h(r.Context(), projID)
+			if len(keyCtx.Policy) == 0 && pgPool != nil {
+				var polBytes []byte
+				if err := pgPool.QueryRow(r.Context(), "SELECT spec FROM policies WHERE project_id = $1 ORDER BY version DESC LIMIT 1", projID).Scan(&polBytes); err == nil && len(polBytes) > 0 {
+					keyCtx.Policy = polBytes
+				}
+			}
+			if len(keyCtx.Policy) == 0 && rdb != nil {
+				if polStr, err := rdb.Get(r.Context(), "policy:"+projID.String()).Result(); err == nil && polStr != "" {
+					keyCtx.Policy = []byte(polStr)
+				}
+			}
+
+			if len(keyCtx.Policy) > 0 {
+				var spend24h decimal.Decimal
+				if ledg != nil {
+					spend24h, _ = ledg.SpendLast24h(r.Context(), projID)
+				}
 				if err := policy.PreCheckPayment(keyCtx.Policy, cfg.HederaPlatformAccount, estUSD, spend24h); err != nil {
 					httpx.Err(w, http.StatusForbidden, "POLICY_REJECTED", err.Error())
 					return

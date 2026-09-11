@@ -84,8 +84,12 @@ func PreCheckPayment(rawSpec []byte, payTo string, amountUSD decimal.Decimal, sp
 	}
 
 	// 2. Per-call cap
-	if spec.Payment.MaxUSDPerCall != "" {
-		maxPerCall, err := decimal.NewFromString(spec.Payment.MaxUSDPerCall)
+	maxCallStr := spec.Payment.MaxUSDPerCall
+	if maxCallStr == "" {
+		maxCallStr = spec.Velocity.MaxUSDPerCall
+	}
+	if maxCallStr != "" {
+		maxPerCall, err := decimal.NewFromString(maxCallStr)
 		if err == nil && amountUSD.GreaterThan(maxPerCall) {
 			return fmt.Errorf("%w: call amount %s exceeds limit %s", ErrPerCallCapExceeded, amountUSD, maxPerCall)
 		}

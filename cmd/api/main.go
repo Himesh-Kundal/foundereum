@@ -2481,10 +2481,10 @@ func main() {
 					}
 					curPol["version"] = curVer
 					memStore.policies[targetProjID] = curPol
+					specBytes, _ := json.Marshal(curPol["spec"])
 
 					if queries != nil {
 						if pUUID, err := uuid.Parse(targetProjID); err == nil {
-							specBytes, _ := json.Marshal(curPol["spec"])
 							_, _ = queries.UpsertPolicy(r.Context(), db.UpsertPolicyParams{
 								ProjectID:     toPgUUID(pUUID),
 								Spec:          specBytes,
@@ -2496,6 +2496,7 @@ func main() {
 					}
 
 					if rdb != nil {
+						_ = rdb.Set(r.Context(), "policy:"+targetProjID, string(specBytes), 0).Err()
 						msg, _ := json.Marshal(map[string]any{
 							"type":       "policy.updated",
 							"project_id": targetProjID,
