@@ -76,8 +76,8 @@ export function WithdrawModal({ isOpen, onClose, currentProject, onWithdraw }: W
             </div>
           )}
           <div className="flex justify-end gap-2 mt-2">
-            <PillButton onClick={onClose}>CANCEL</PillButton>
-            <BlockButton variant="danger">
+            <PillButton type="button" onClick={onClose}>CANCEL</PillButton>
+            <BlockButton type="submit" variant="danger">
               {isSubmitting ? 'SUBMITTING...' : 'SUBMIT WITHDRAWAL'}
             </BlockButton>
           </div>

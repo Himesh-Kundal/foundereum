@@ -70,8 +70,8 @@ export function TopUpModal({ isOpen, onClose, onTopUp }: TopUpModalProps) {
             />
           </div>
           <div className="flex justify-end gap-2 mt-2">
-            <PillButton onClick={onClose}>CANCEL</PillButton>
-            <BlockButton>{isSubmitting ? 'TRANSFERRING...' : 'TRANSFER USDC'}</BlockButton>
+            <PillButton type="button" onClick={onClose}>CANCEL</PillButton>
+            <BlockButton type="submit">{isSubmitting ? 'TRANSFERRING...' : 'TRANSFER USDC'}</BlockButton>
           </div>
         </form>
       </div>

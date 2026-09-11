@@ -61,12 +61,13 @@ export function NewKeyModal({ isOpen, onClose, onCreate }: NewKeyModalProps) {
                 placeholder="e.g. Claude Desktop Agent" 
                 className="border border-ink bg-paper2 p-2 font-mono text-sm outline-none focus:border-forge"
                 required
+                autoFocus
                 disabled={isSubmitting}
               />
             </div>
             <div className="flex justify-end gap-2 mt-4">
-              <PillButton onClick={handleClose}>CANCEL</PillButton>
-              <BlockButton>{isSubmitting ? 'GENERATING...' : 'GENERATE KEY'}</BlockButton>
+              <PillButton type="button" onClick={handleClose}>CANCEL</PillButton>
+              <BlockButton type="submit">{isSubmitting ? 'GENERATING...' : 'GENERATE KEY'}</BlockButton>
             </div>
           </form>
         ) : (

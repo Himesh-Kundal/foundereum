@@ -73,8 +73,8 @@ export function NewProjectModal({ isOpen, onClose, onCreate }: NewProjectModalPr
             </div>
           </div>
           <div className="flex justify-end gap-2 mt-4">
-            <PillButton onClick={onClose}>CANCEL</PillButton>
-            <BlockButton>{isSubmitting ? 'PROVISIONING...' : 'PROVISION ON HEDERA'}</BlockButton>
+            <PillButton type="button" onClick={onClose}>CANCEL</PillButton>
+            <BlockButton type="submit">{isSubmitting ? 'PROVISIONING...' : 'PROVISION ON HEDERA'}</BlockButton>
           </div>
         </form>
       </div>

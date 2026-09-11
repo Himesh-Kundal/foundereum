@@ -1386,7 +1386,7 @@ func main() {
 					if pUUID, err := uuid.Parse(id); err == nil {
 						pBytes, _ := json.Marshal(payloadMap)
 						sBytes, _ := json.Marshal(initialSigs)
-						_, _ = queries.CreateApproval(r.Context(), db.CreateApprovalParams{
+						if createdApp, err := queries.CreateApproval(r.Context(), db.CreateApprovalParams{
 							ProjectID:  toPgUUID(pUUID),
 							Type:       "policy_update",
 							Payload:    pBytes,
@@ -1396,7 +1396,12 @@ func main() {
 							Status:     "pending",
 							CreatedBy:  callerEmail,
 							ExpiresAt:  pgtype.Timestamptz{Time: now.Add(24 * time.Hour), Valid: true},
-						})
+						}); err == nil {
+							appID = fromPgUUID(createdApp.ID)
+							memStore.mu.Lock()
+							app["id"] = appID
+							memStore.mu.Unlock()
+						}
 					}
 				}
 
@@ -2112,7 +2117,7 @@ func main() {
 				if pUUID, err := uuid.Parse(id); err == nil {
 					pBytes, _ := json.Marshal(payloadMap)
 					sBytes, _ := json.Marshal(initialSigs)
-					_, _ = queries.CreateApproval(r.Context(), db.CreateApprovalParams{
+					if createdApp, err := queries.CreateApproval(r.Context(), db.CreateApprovalParams{
 						ProjectID:  toPgUUID(pUUID),
 						Type:       "withdraw",
 						Payload:    pBytes,
@@ -2122,7 +2127,12 @@ func main() {
 						Status:     "pending",
 						CreatedBy:  callerEmail,
 						ExpiresAt:  pgtype.Timestamptz{Time: time.Now().Add(24 * time.Hour), Valid: true},
-					})
+					}); err == nil {
+						appID = fromPgUUID(createdApp.ID)
+						memStore.mu.Lock()
+						app["id"] = appID
+						memStore.mu.Unlock()
+					}
 				}
 			}
 
@@ -2154,6 +2164,40 @@ func main() {
 				}
 				if targetApp != nil {
 					break
+				}
+			}
+
+			if targetApp == nil && queries != nil {
+				if appUUID, err := uuid.Parse(id); err == nil {
+					if dbApp, err := queries.GetApproval(r.Context(), toPgUUID(appUUID)); err == nil {
+						var pMap map[string]any
+						_ = json.Unmarshal(dbApp.Payload, &pMap)
+						var sigs []map[string]any
+						_ = json.Unmarshal(dbApp.Signatures, &sigs)
+						hUrl := ""
+						if dbApp.ResultTxID.Valid && dbApp.ResultTxID.String != "" {
+							hUrl = fmt.Sprintf("https://hashscan.io/%s/transaction/%s", cfg.HederaNetwork, dbApp.ResultTxID.String)
+						}
+						targetProjID = fromPgUUID(dbApp.ProjectID)
+						expStr := ""
+						if dbApp.ExpiresAt.Valid {
+							expStr = dbApp.ExpiresAt.Time.Format(time.RFC3339)
+						}
+						targetApp = map[string]any{
+							"id":           fromPgUUID(dbApp.ID),
+							"project_id":   targetProjID,
+							"type":         dbApp.Type,
+							"payload":      pMap,
+							"threshold":    int(dbApp.Threshold),
+							"signatures":   sigs,
+							"status":       dbApp.Status,
+							"result_tx_id": dbApp.ResultTxID.String,
+							"hashscan_url": hUrl,
+							"created_by":   dbApp.CreatedBy,
+							"expires_at":   expStr,
+						}
+						memStore.approvals[targetProjID] = append(memStore.approvals[targetProjID], targetApp)
+					}
 				}
 			}
 
@@ -2352,6 +2396,35 @@ func main() {
 				}
 				if targetApp != nil {
 					break
+				}
+			}
+
+			if targetApp == nil && queries != nil {
+				if appUUID, err := uuid.Parse(id); err == nil {
+					if dbApp, err := queries.GetApproval(r.Context(), toPgUUID(appUUID)); err == nil {
+						var pMap map[string]any
+						_ = json.Unmarshal(dbApp.Payload, &pMap)
+						var sigs []map[string]any
+						_ = json.Unmarshal(dbApp.Signatures, &sigs)
+						targetProjID := fromPgUUID(dbApp.ProjectID)
+						expStr := ""
+						if dbApp.ExpiresAt.Valid {
+							expStr = dbApp.ExpiresAt.Time.Format(time.RFC3339)
+						}
+						targetApp = map[string]any{
+							"id":           fromPgUUID(dbApp.ID),
+							"project_id":   targetProjID,
+							"type":         dbApp.Type,
+							"payload":      pMap,
+							"threshold":    int(dbApp.Threshold),
+							"signatures":   sigs,
+							"status":       dbApp.Status,
+							"result_tx_id": dbApp.ResultTxID.String,
+							"created_by":   dbApp.CreatedBy,
+							"expires_at":   expStr,
+						}
+						memStore.approvals[targetProjID] = append(memStore.approvals[targetProjID], targetApp)
+					}
 				}
 			}
 
