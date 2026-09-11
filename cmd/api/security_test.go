@@ -92,3 +92,48 @@ func TestAPIKeySanitization(t *testing.T) {
 		t.Fatalf("expected prefix %s, got %v", prefix, safeKeys[0]["prefix"])
 	}
 }
+
+func TestOrgInvitationFlow(t *testing.T) {
+	ms := NewMemoryStore()
+
+	orgA := uuid.NewString()
+	userEmail := "himesh.kundal@kgpian.iitkgp.ac.in"
+
+	// 1. Invite user to Org A
+	ms.members[orgA] = append(ms.members[orgA], map[string]any{
+		"email":  userEmail,
+		"role":   "approver",
+		"status": "invited",
+	})
+
+	// 2. Lookup memberships for user
+	found := false
+	for _, m := range ms.members[orgA] {
+		if m["email"] == userEmail && m["status"] == "invited" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected invited member to be found")
+	}
+
+	// 3. Accept invitation
+	for _, m := range ms.members[orgA] {
+		if m["email"] == userEmail {
+			m["status"] = "active"
+		}
+	}
+
+	// 4. Verify status is active
+	activeFound := false
+	for _, m := range ms.members[orgA] {
+		if m["email"] == userEmail && m["status"] == "active" {
+			activeFound = true
+			break
+		}
+	}
+	if !activeFound {
+		t.Fatalf("expected member status to be active after accept")
+	}
+}

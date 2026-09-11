@@ -24,7 +24,8 @@ import type {
   AuditMessage, 
   Approval, 
   PolicyResponse, 
-  OrgMember 
+  OrgMember,
+  UserOrgMembership 
 } from '../types';
 
 export interface DashboardPageProps {
@@ -47,6 +48,9 @@ export interface DashboardPageProps {
   isLoading: boolean;
   orgMembers: OrgMember[];
   currentOrg: { id: string; name: string };
+  orgMemberships?: UserOrgMembership[];
+  onAcceptInvite?: (orgId: string) => Promise<void>;
+  onSwitchOrg?: (orgId: string) => Promise<void>;
   onSignOut: () => void;
   onCreateProject: (name: string, preset: string) => Promise<void>;
   onCreateKey: (name: string) => Promise<string | null>;
@@ -95,6 +99,9 @@ export function DashboardPage({
   onPushPolicy,
   onFaucet,
   onInviteMember,
+  orgMemberships = [],
+  onAcceptInvite,
+  onSwitchOrg,
   rotatedKey,
   onCloseRotatedKeyModal,
 }: DashboardPageProps) {
@@ -215,6 +222,29 @@ export function DashboardPage({
         onSignOut={onSignOut}
       />
 
+      {/* Pending Invitations Banner */}
+      {orgMemberships.filter(m => m.status === 'invited').map(inv => (
+        <div key={inv.org_id} className="bg-paper2 border-b-2 border-forge px-4 py-2 flex flex-wrap items-center justify-between gap-2 font-mono text-xs shadow-xs">
+          <div className="flex items-center gap-2 text-ink">
+            <span className="w-2.5 h-2.5 bg-forge inline-block animate-ping" />
+            <span>
+              You have a pending invitation to join <strong>{inv.org_name}</strong> as an <strong>[{inv.role.toUpperCase()}]</strong>!
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            {onAcceptInvite && (
+              <button
+                type="button"
+                onClick={() => onAcceptInvite(inv.org_id)}
+                className="bg-forge text-ink font-bold px-3 py-1 border border-ink hover:opacity-90 cursor-pointer uppercase text-xs"
+              >
+                ACCEPT INVITATION &amp; SWITCH
+              </button>
+            )}
+          </div>
+        </div>
+      ))}
+
       <div className="flex flex-1 overflow-hidden">
         <NavSide
           active={currentTab}
@@ -266,7 +296,10 @@ export function DashboardPage({
         members={orgMembers}
         currentOrg={currentOrg}
         currentUser={user || { email: 'operator@foundereum.org', role: 'owner' }}
+        orgMemberships={orgMemberships}
         onInviteMember={onInviteMember}
+        onAcceptInvite={onAcceptInvite}
+        onSwitchOrg={onSwitchOrg}
       />
 
       <RotatedKeyModal

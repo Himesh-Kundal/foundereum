@@ -18,6 +18,7 @@ import {
   type ServiceTool, 
   type PolicyResponse,
   type OrgMember,
+  type UserOrgMembership,
   type AuthSession,
   type View,
   type Tab,
@@ -54,10 +55,11 @@ export default function App() {
   // Auth & Org State
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [orgMembers, setOrgMembers] = useState<OrgMember[]>([]);
-  const [currentOrg] = useState<{ id: string; name: string }>({
+  const [currentOrg, setCurrentOrg] = useState<{ id: string; name: string }>({
     id: '00000000-0000-0000-0000-000000000001',
     name: 'Acme Ventures',
   });
+  const [orgMemberships, setOrgMemberships] = useState<UserOrgMembership[]>([]);
 
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -76,12 +78,14 @@ export default function App() {
       }
 
       if (api.getToken()) {
-        const [projs, mems] = await Promise.all([
+        const [projs, mems, myOrgs] = await Promise.all([
           api.getProjects().catch(() => []),
           api.getOrgMembers().catch(() => []),
+          api.getMyOrgs().catch(() => []),
         ]);
         setProjects(projs);
         if (mems && mems.length > 0) setOrgMembers(mems);
+        if (myOrgs && myOrgs.length > 0) setOrgMemberships(myOrgs);
         if (projs.length > 0 && !activeProjectId) {
           setActiveProjectId(projs[0].id);
         }
@@ -102,17 +106,22 @@ export default function App() {
       orgName: session.org.name,
     };
     setUser(sess);
+    if (session.org) {
+      setCurrentOrg({ id: session.org.id, name: session.org.name });
+    }
     localStorage.setItem('fnd_user_session', JSON.stringify(sess));
     showToast(`Authenticated via Privy: ${session.user.email} (${session.role})`);
     setIsAuthModalOpen(false);
 
     try {
-      const [projs, mems] = await Promise.all([
+      const [projs, mems, myOrgs] = await Promise.all([
         api.getProjects().catch(() => []),
-        api.getOrgMembers().catch(() => []),
+        api.getOrgMembers(session.org?.id).catch(() => []),
+        api.getMyOrgs().catch(() => []),
       ]);
       setProjects(projs);
       if (mems && mems.length > 0) setOrgMembers(mems);
+      if (myOrgs && myOrgs.length > 0) setOrgMemberships(myOrgs);
       if (projs.length > 0) {
         setActiveProjectId(projs[0].id);
       }
@@ -126,6 +135,58 @@ export default function App() {
     const newMember = await api.inviteOrgMember(currentOrg.id, inviteEmail, inviteRole);
     setOrgMembers((prev) => [...prev, newMember]);
     showToast(`Invited ${inviteEmail} as ${inviteRole}`);
+  };
+
+  const handleAcceptInvite = async (orgId: string) => {
+    try {
+      const res = await api.acceptOrgInvite(orgId);
+      showToast(`Joined ${res.org_name} as ${res.role}!`);
+      setCurrentOrg({ id: res.org_id, name: res.org_name });
+      if (user) {
+        const updated = { ...user, role: res.role, orgName: res.org_name };
+        setUser(updated);
+        localStorage.setItem('fnd_user_session', JSON.stringify(updated));
+      }
+      const [projs, mems, myOrgs] = await Promise.all([
+        api.getProjects().catch(() => []),
+        api.getOrgMembers(res.org_id).catch(() => []),
+        api.getMyOrgs().catch(() => []),
+      ]);
+      setProjects(projs);
+      setOrgMembers(mems);
+      setOrgMemberships(myOrgs);
+      if (projs.length > 0) {
+        setActiveProjectId(projs[0].id);
+      }
+    } catch (err: unknown) {
+      showToast(`Failed to accept invitation: ${(err as Error).message}`);
+    }
+  };
+
+  const handleSwitchOrg = async (orgId: string) => {
+    try {
+      const res = await api.switchOrg(orgId);
+      showToast(`Switched active workspace to ${res.org_name}`);
+      setCurrentOrg({ id: res.org_id, name: res.org_name });
+      if (user) {
+        const updated = { ...user, role: res.role, orgName: res.org_name };
+        setUser(updated);
+        localStorage.setItem('fnd_user_session', JSON.stringify(updated));
+      }
+      const [projs, mems, myOrgs] = await Promise.all([
+        api.getProjects().catch(() => []),
+        api.getOrgMembers(res.org_id).catch(() => []),
+        api.getMyOrgs().catch(() => []),
+      ]);
+      setProjects(projs);
+      setOrgMembers(mems);
+      setOrgMemberships(myOrgs);
+      if (projs.length > 0) {
+        setActiveProjectId(projs[0].id);
+      }
+    } catch (err: unknown) {
+      showToast(`Failed to switch organization: ${(err as Error).message}`);
+    }
   };
 
   const handleSignOut = () => {
@@ -521,6 +582,9 @@ export default function App() {
         isLoading={isLoading}
         orgMembers={orgMembers}
         currentOrg={currentOrg}
+        orgMemberships={orgMemberships}
+        onAcceptInvite={handleAcceptInvite}
+        onSwitchOrg={handleSwitchOrg}
         onSignOut={handleSignOut}
         onCreateProject={handleCreateProject}
         onCreateKey={handleCreateKey}

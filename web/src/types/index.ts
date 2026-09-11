@@ -8,6 +8,7 @@ import type {
   ServiceTool, 
   PolicyResponse,
   OrgMember,
+  UserOrgMembership,
   AuthSession
 } from '../api';
 export { api } from '../api';
@@ -33,5 +34,6 @@ export type {
   ServiceTool, 
   PolicyResponse,
   OrgMember,
+  UserOrgMembership,
   AuthSession 
 };

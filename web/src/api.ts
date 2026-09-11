@@ -44,6 +44,14 @@ export interface OrgMember {
   status: 'active' | 'invited' | string;
 }
 
+export interface UserOrgMembership {
+  org_id: string;
+  org_name: string;
+  role: string;
+  status: 'active' | 'invited' | string;
+  is_active?: boolean;
+}
+
 export interface AuthSession {
   jwt: string;
   user: {
@@ -282,6 +290,31 @@ class ApiClient {
       method: 'POST',
       body: JSON.stringify({ email, role }),
     });
+  }
+
+  async getMyOrgs(): Promise<UserOrgMembership[]> {
+    return this.request<UserOrgMembership[]>('/v1/me/orgs');
+  }
+
+  async acceptOrgInvite(orgId: string): Promise<{ jwt: string; org_id: string; org_name: string; role: string; status: string }> {
+    const res = await this.request<{ jwt: string; org_id: string; org_name: string; role: string; status: string }>(`/v1/orgs/${orgId}/accept-invite`, {
+      method: 'POST',
+    });
+    if (res.jwt) {
+      this.setToken(res.jwt);
+    }
+    return res;
+  }
+
+  async switchOrg(orgId: string): Promise<{ jwt: string; org_id: string; org_name: string; role: string }> {
+    const res = await this.request<{ jwt: string; org_id: string; org_name: string; role: string }>('/v1/auth/switch-org', {
+      method: 'POST',
+      body: JSON.stringify({ org_id: orgId }),
+    });
+    if (res.jwt) {
+      this.setToken(res.jwt);
+    }
+    return res;
   }
 
   // 3. Projects

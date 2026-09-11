@@ -387,6 +387,23 @@ func main() {
 			}
 		}
 
+		// Preload org members from Postgres into memStore
+		mRows, err := pgPool.Query(ctx, "SELECT org_id, email, role, status FROM members")
+		if err == nil {
+			defer mRows.Close()
+			for mRows.Next() {
+				var oID uuid.UUID
+				var email, role, status string
+				if err := mRows.Scan(&oID, &email, &role, &status); err == nil {
+					memStore.members[oID.String()] = append(memStore.members[oID.String()], map[string]any{
+						"email":  email,
+						"role":   role,
+						"status": status,
+					})
+				}
+			}
+		}
+
 		_ = demoUserUUID
 	}
 
@@ -484,6 +501,24 @@ func main() {
 		} else {
 			userID = uuid.NewSHA1(userNamespace, []byte("user:"+email))
 			orgID = uuid.NewSHA1(userNamespace, []byte("org:"+email))
+
+			// If user already belongs to or was invited to an existing org, default session to it
+			if req.Org == "" && pgPool != nil {
+				var eOrgID uuid.UUID
+				var eOrgName, eRole string
+				err := pgPool.QueryRow(r.Context(), `
+					SELECT m.org_id, o.name, m.role 
+					FROM members m 
+					JOIN orgs o ON o.id = m.org_id 
+					WHERE LOWER(m.email) = LOWER($1) 
+					ORDER BY CASE WHEN m.status = 'active' THEN 1 ELSE 2 END, m.created_at DESC 
+					LIMIT 1`, email).Scan(&eOrgID, &eOrgName, &eRole)
+				if err == nil {
+					orgID = eOrgID
+					orgName = eOrgName
+					role = eRole
+				}
+			}
 		}
 
 		token, err := authSvc.IssueToken(userID, orgID, email, role)
@@ -499,7 +534,7 @@ func main() {
 			})
 			if pgPool != nil {
 				_, _ = pgPool.Exec(r.Context(), "INSERT INTO orgs (id, name) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING", orgID, orgName)
-				_, _ = pgPool.Exec(r.Context(), "INSERT INTO members (org_id, user_id, email, role, status) VALUES ($1, $2, $3, $4, 'active') ON CONFLICT (org_id, email) DO NOTHING", orgID, userID, email, role)
+				_, _ = pgPool.Exec(r.Context(), "INSERT INTO members (org_id, user_id, email, role, status) VALUES ($1, $2, $3, $4, 'active') ON CONFLICT (org_id, email) DO UPDATE SET user_id = EXCLUDED.user_id", orgID, userID, email, role)
 			}
 		}
 
@@ -517,10 +552,175 @@ func main() {
 
 		pr.Get("/v1/me", func(w http.ResponseWriter, r *http.Request) {
 			claims, _ := auth.GetSession(r.Context())
+			orgName := "Acme Ventures"
+			if pgPool != nil && claims != nil {
+				_ = pgPool.QueryRow(r.Context(), "SELECT name FROM orgs WHERE id = $1", claims.OrgID).Scan(&orgName)
+			}
 			httpx.JSON(w, http.StatusOK, map[string]any{
 				"user": map[string]any{"id": claims.UserID, "email": claims.Email},
-				"org":  map[string]any{"id": claims.OrgID, "name": "Acme Ventures"},
+				"org":  map[string]any{"id": claims.OrgID, "name": orgName},
 				"role": claims.Role,
+			})
+		})
+
+		pr.Get("/v1/me/orgs", func(w http.ResponseWriter, r *http.Request) {
+			claims, _ := auth.GetSession(r.Context())
+			if claims == nil || claims.Email == "" {
+				httpx.Err(w, http.StatusUnauthorized, "UNAUTHORIZED", "authentication required")
+				return
+			}
+			var results []map[string]any
+			if pgPool != nil {
+				rows, err := pgPool.Query(r.Context(), `
+					SELECT m.org_id, o.name, m.role, m.status
+					FROM members m
+					JOIN orgs o ON o.id = m.org_id
+					WHERE LOWER(m.email) = LOWER($1)
+					ORDER BY CASE WHEN m.status = 'active' THEN 1 ELSE 2 END, m.created_at DESC`, claims.Email)
+				if err == nil {
+					defer rows.Close()
+					for rows.Next() {
+						var oID uuid.UUID
+						var oName, role, status string
+						if err := rows.Scan(&oID, &oName, &role, &status); err == nil {
+							results = append(results, map[string]any{
+								"org_id":    oID.String(),
+								"org_name":  oName,
+								"role":      role,
+								"status":    status,
+								"is_active": oID == claims.OrgID,
+							})
+						}
+					}
+				}
+			}
+			if len(results) == 0 {
+				memStore.mu.RLock()
+				for oID, mems := range memStore.members {
+					for _, m := range mems {
+						if mEmail, ok := m["email"].(string); ok && strings.EqualFold(mEmail, claims.Email) {
+							role, _ := m["role"].(string)
+							status, _ := m["status"].(string)
+							results = append(results, map[string]any{
+								"org_id":    oID,
+								"org_name":  "Acme Ventures",
+								"role":      role,
+								"status":    status,
+								"is_active": oID == claims.OrgID.String(),
+							})
+						}
+					}
+				}
+				memStore.mu.RUnlock()
+			}
+			if results == nil {
+				results = []map[string]any{}
+			}
+			httpx.JSON(w, http.StatusOK, results)
+		})
+
+		pr.Post("/v1/orgs/{id}/accept-invite", func(w http.ResponseWriter, r *http.Request) {
+			orgID := chi.URLParam(r, "id")
+			claims, _ := auth.GetSession(r.Context())
+			if claims == nil || claims.Email == "" {
+				httpx.Err(w, http.StatusUnauthorized, "UNAUTHORIZED", "authentication required")
+				return
+			}
+			oUUID, err := uuid.Parse(orgID)
+			if err != nil {
+				httpx.Err(w, http.StatusBadRequest, "INVALID_ID", "invalid organization id")
+				return
+			}
+			role := "approver"
+			orgName := "Acme Ventures"
+			if pgPool != nil {
+				_ = pgPool.QueryRow(r.Context(), "SELECT name FROM orgs WHERE id = $1", oUUID).Scan(&orgName)
+				_ = pgPool.QueryRow(r.Context(), "SELECT role FROM members WHERE org_id = $1 AND LOWER(email) = LOWER($2)", oUUID, claims.Email).Scan(&role)
+				_, _ = pgPool.Exec(r.Context(), "UPDATE members SET status = 'active', user_id = $1 WHERE org_id = $2 AND LOWER(email) = LOWER($3)", claims.UserID, oUUID, claims.Email)
+			}
+			memStore.mu.Lock()
+			for _, m := range memStore.members[orgID] {
+				if mEmail, ok := m["email"].(string); ok && strings.EqualFold(mEmail, claims.Email) {
+					m["status"] = "active"
+					if r, ok := m["role"].(string); ok && r != "" {
+						role = r
+					}
+				}
+			}
+			memStore.mu.Unlock()
+
+			newToken, err := authSvc.IssueToken(claims.UserID, oUUID, claims.Email, role)
+			if err != nil {
+				httpx.Err(w, http.StatusInternalServerError, "AUTH_FAILED", err.Error())
+				return
+			}
+
+			httpx.JSON(w, http.StatusOK, map[string]any{
+				"jwt":      newToken,
+				"org_id":   orgID,
+				"org_name": orgName,
+				"role":     role,
+				"status":   "active",
+			})
+		})
+
+		pr.Post("/v1/auth/switch-org", func(w http.ResponseWriter, r *http.Request) {
+			var req struct {
+				OrgID string `json:"org_id"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.OrgID == "" {
+				httpx.Err(w, http.StatusBadRequest, "INVALID_REQUEST", "org_id is required")
+				return
+			}
+			claims, _ := auth.GetSession(r.Context())
+			if claims == nil {
+				httpx.Err(w, http.StatusUnauthorized, "UNAUTHORIZED", "authentication required")
+				return
+			}
+			oUUID, err := uuid.Parse(req.OrgID)
+			if err != nil {
+				httpx.Err(w, http.StatusBadRequest, "INVALID_ID", "invalid organization id")
+				return
+			}
+			role := "viewer"
+			orgName := "Workspace"
+			found := false
+			if pgPool != nil {
+				err := pgPool.QueryRow(r.Context(), "SELECT role FROM members WHERE org_id = $1 AND LOWER(email) = LOWER($2)", oUUID, claims.Email).Scan(&role)
+				if err == nil {
+					found = true
+					_ = pgPool.QueryRow(r.Context(), "SELECT name FROM orgs WHERE id = $1", oUUID).Scan(&orgName)
+				}
+			}
+			if !found {
+				memStore.mu.RLock()
+				for _, m := range memStore.members[req.OrgID] {
+					if mEmail, ok := m["email"].(string); ok && strings.EqualFold(mEmail, claims.Email) {
+						found = true
+						if r, ok := m["role"].(string); ok {
+							role = r
+						}
+						break
+					}
+				}
+				memStore.mu.RUnlock()
+			}
+			if !found {
+				httpx.Err(w, http.StatusForbidden, "FORBIDDEN", "you are not a member of this organization")
+				return
+			}
+
+			newToken, err := authSvc.IssueToken(claims.UserID, oUUID, claims.Email, role)
+			if err != nil {
+				httpx.Err(w, http.StatusInternalServerError, "AUTH_FAILED", err.Error())
+				return
+			}
+
+			httpx.JSON(w, http.StatusOK, map[string]any{
+				"jwt":      newToken,
+				"org_id":   req.OrgID,
+				"org_name": orgName,
+				"role":     role,
 			})
 		})
 

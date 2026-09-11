@@ -1,15 +1,18 @@
 import { useState } from 'react';
 import { BlockButton, PillButton } from './Buttons';
 import { StatusPill } from './Pills';
-import type { OrgMember } from '../api';
+import type { OrgMember, UserOrgMembership } from '../api';
 
-interface OrgMembersModalProps {
+export interface OrgMembersModalProps {
   isOpen: boolean;
   onClose: () => void;
   members: OrgMember[];
   currentOrg: { id: string; name: string };
   currentUser: { email: string; role: string };
+  orgMemberships?: UserOrgMembership[];
   onInviteMember: (email: string, role: string) => Promise<void>;
+  onAcceptInvite?: (orgId: string) => Promise<void>;
+  onSwitchOrg?: (orgId: string) => Promise<void>;
 }
 
 export function OrgMembersModal({
@@ -18,7 +21,10 @@ export function OrgMembersModal({
   members,
   currentOrg,
   currentUser,
+  orgMemberships = [],
   onInviteMember,
+  onAcceptInvite,
+  onSwitchOrg,
 }: OrgMembersModalProps) {
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState<'approver' | 'viewer'>('approver');
@@ -82,6 +88,61 @@ export function OrgMembersModal({
             Team members with the <strong className="text-ink">Approver</strong> role hold hardware WebCrypto P-256 keys to countersign treasury withdrawals and policy pushes.
           </p>
         </div>
+
+        {/* Organizations & Invitations */}
+        {orgMemberships.length > 0 && (
+          <div className="flex flex-col gap-2">
+            <span className="text-xs uppercase font-bold text-ink">
+              Your Organizations &amp; Invitations ({orgMemberships.length})
+            </span>
+            <div className="border border-ink bg-paper flex flex-col max-h-48 overflow-y-auto">
+              {orgMemberships.map((org) => {
+                const isCurrent = org.org_id === currentOrg.id || org.is_active;
+                const isInvited = org.status === 'invited';
+                return (
+                  <div
+                    key={org.org_id}
+                    className="flex items-center justify-between p-2.5 border-b border-ink last:border-b-0 text-xs font-mono"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className={`w-2 h-2 rounded-full ${isCurrent ? 'bg-ok' : isInvited ? 'bg-forge animate-pulse' : 'bg-ink-mut'}`} />
+                      <div>
+                        <div className="font-bold text-ink">
+                          {org.org_name}
+                          {isCurrent && <span className="ml-1 text-[10px] text-ok font-normal">(current active)</span>}
+                        </div>
+                        <div className="text-[10px] text-ink-mut uppercase">
+                          Role: [{org.role}] · Status: {org.status}
+                        </div>
+                      </div>
+                    </div>
+                    <div>
+                      {isInvited && onAcceptInvite ? (
+                        <BlockButton
+                          type="button"
+                          onClick={() => onAcceptInvite(org.org_id)}
+                          className="text-[10px] py-1 px-3 font-bold"
+                        >
+                          ACCEPT INVITATION
+                        </BlockButton>
+                      ) : !isCurrent && onSwitchOrg ? (
+                        <PillButton
+                          type="button"
+                          onClick={() => onSwitchOrg(org.org_id)}
+                          className="text-[10px] py-1 px-3"
+                        >
+                          SWITCH ORG
+                        </PillButton>
+                      ) : (
+                        <span className="text-[10px] text-ok font-bold uppercase">✓ ACTIVE</span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Members List */}
         <div className="flex flex-col gap-2">
