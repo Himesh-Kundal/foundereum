@@ -1,6 +1,7 @@
 import { Cell } from '../Cell';
 import { CopyField } from '../CopyField';
 import { BlockButton } from '../Buttons';
+import { ExternalLink } from 'lucide-react';
 import type { Wallet, ProjectSummary } from '../../types';
 
 export interface WalletsTabProps {
@@ -38,11 +39,39 @@ export function WalletsTab({
           </div>
           <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-1">
-              <span className="text-xs font-mono text-ink-mut uppercase font-bold">HEDERA ACCOUNT ID</span>
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-mono text-ink-mut uppercase font-bold">HEDERA ACCOUNT ID</span>
+                {treasuryWallet.hedera_account_id && (
+                  <a
+                    href={`https://hashscan.io/testnet/account/${treasuryWallet.hedera_account_id}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-xs text-ink hover:text-forge flex items-center gap-1 transition-colors"
+                    title="View Account on HashScan"
+                  >
+                    <span>HashScan</span>
+                    <ExternalLink size={11} />
+                  </a>
+                )}
+              </div>
               <CopyField value={treasuryWallet.hedera_account_id} />
             </div>
             <div className="flex flex-col gap-1">
-              <span className="text-xs font-mono text-ink-mut uppercase font-bold">EVM ALIAS</span>
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-mono text-ink-mut uppercase font-bold">EVM ALIAS</span>
+                {treasuryWallet.evm_address && (
+                  <a
+                    href={`https://hashscan.io/testnet/account/${treasuryWallet.evm_address}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-xs text-ink hover:text-forge flex items-center gap-1 transition-colors"
+                    title="View EVM Address on HashScan"
+                  >
+                    <span>HashScan</span>
+                    <ExternalLink size={11} />
+                  </a>
+                )}
+              </div>
               <CopyField value={treasuryWallet.evm_address} />
             </div>
           </div>
@@ -72,11 +101,39 @@ export function WalletsTab({
           </div>
           <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-1">
-              <span className="text-xs font-mono text-ink-mut uppercase font-bold">HEDERA ACCOUNT ID</span>
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-mono text-ink-mut uppercase font-bold">HEDERA ACCOUNT ID</span>
+                {agentWallet.hedera_account_id && (
+                  <a
+                    href={`https://hashscan.io/testnet/account/${agentWallet.hedera_account_id}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-xs text-ink hover:text-forge flex items-center gap-1 transition-colors"
+                    title="View Account on HashScan"
+                  >
+                    <span>HashScan</span>
+                    <ExternalLink size={11} />
+                  </a>
+                )}
+              </div>
               <CopyField value={agentWallet.hedera_account_id} />
             </div>
             <div className="flex flex-col gap-1">
-              <span className="text-xs font-mono text-ink-mut uppercase font-bold">EVM ALIAS</span>
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-mono text-ink-mut uppercase font-bold">EVM ALIAS</span>
+                {agentWallet.evm_address && (
+                  <a
+                    href={`https://hashscan.io/testnet/account/${agentWallet.evm_address}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-xs text-ink hover:text-forge flex items-center gap-1 transition-colors"
+                    title="View EVM Address on HashScan"
+                  >
+                    <span>HashScan</span>
+                    <ExternalLink size={11} />
+                  </a>
+                )}
+              </div>
               <CopyField value={agentWallet.evm_address} />
             </div>
           </div>

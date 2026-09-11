@@ -219,6 +219,7 @@ end
 
 	// POST /v1/tools/{tool}: Core x402-gated tool execution
 	r.Post("/v1/tools/{tool}", func(w http.ResponseWriter, r *http.Request) {
+		reqStart := time.Now()
 		toolName := chi.URLParam(r, "tool")
 		spec, ok := tools.Get(toolName)
 		if !ok {
@@ -461,7 +462,7 @@ end
 				ActualUSD:      actUSD,
 				MeteredBytes:   int32(out.Bytes),
 				TxHash:         settleRes.TxID,
-				LatencyMs:      120,
+				LatencyMs:      func() int32 { l := int32(time.Since(reqStart).Milliseconds()); if l <= 0 { return 1 }; return l }(),
 				Asset:          "USDC",
 				AmountBase:     estBaseUnits,
 				Facilitator:    cfg.FacilitatorMode,
@@ -469,6 +470,11 @@ end
 			if err == nil && cID != uuid.Nil {
 				callIDStr = cID.String()
 			}
+		}
+
+		actualLatency := int32(time.Since(reqStart).Milliseconds())
+		if actualLatency <= 0 {
+			actualLatency = 1
 		}
 
 		// Broadcast call event to Redis Pub/Sub for live frontend dashboard streaming
@@ -481,6 +487,7 @@ end
 				"tx_hash":      settleRes.TxID,
 				"estimate_usd": estUSD.String(),
 				"actual_usd":   actUSD.String(),
+				"latency_ms":   actualLatency,
 				"status":       "succeeded",
 				"ts":           time.Now().UTC(),
 			})

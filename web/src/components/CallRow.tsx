@@ -70,14 +70,22 @@ export const CallRow = ({
           
           {txId && (
             <a 
-              href={`https://hashscan.io/testnet/transaction/${txId}`} 
+              href={(() => {
+                if (txId.startsWith('http')) return txId;
+                const m = txId.match(/^(\d+\.\d+\.\d+)@(\d+)\.(\d+)$/);
+                if (m) return `https://hashscan.io/testnet/transaction/${m[1]}-${m[2]}-${m[3]}`;
+                if (txId.startsWith('0.0.') && !txId.includes('@') && !txId.includes('-')) {
+                  return `https://hashscan.io/testnet/account/${txId}`;
+                }
+                return `https://hashscan.io/testnet/transaction/${txId}`;
+              })()} 
               target="_blank" 
               rel="noreferrer"
               onClick={(e) => e.stopPropagation()}
-              className="flex items-center gap-1 text-ink hover:text-forge transition-colors"
+              className="flex items-center gap-1 text-ink hover:text-forge transition-colors font-mono"
               title="View on HashScan"
             >
-              <span>{txId}</span>
+              <span>{txId.length > 24 ? `${txId.slice(0, 10)}...${txId.slice(-6)}` : txId}</span>
               <ExternalLink size={12} />
             </a>
           )}
