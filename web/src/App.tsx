@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { usePrivy } from '@privy-io/react-auth';
 import { Landing } from './components/Landing';
 import { LoginPage } from './pages/LoginPage';
 import { ProjectsPage } from './pages/ProjectsPage';
@@ -26,6 +27,7 @@ import {
 } from './types';
 
 export default function App() {
+  const { logout: privyLogout } = usePrivy();
   const [currentView, setCurrentView] = useState<View>('landing');
   const [currentTab, setCurrentTab] = useState<Tab>('overview');
   
@@ -189,12 +191,20 @@ export default function App() {
     }
   };
 
-  const handleSignOut = () => {
+  const handleSignOut = async () => {
+    try {
+      await privyLogout();
+    } catch (err) {
+      console.warn('Privy logout error:', err);
+    }
     api.setToken(null);
     setUser(null);
+    setOrgMemberships([]);
+    setProjects([]);
+    setActiveProjectId('');
     localStorage.removeItem('fnd_user_session');
     localStorage.removeItem('fnd_jwt');
-    showToast('Signed out. Privy session keys wiped.');
+    showToast('Signed out. Privy session wiped.');
     navigateTo('landing');
   };
 

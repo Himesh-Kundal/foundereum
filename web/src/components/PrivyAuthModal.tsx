@@ -27,27 +27,27 @@ export function PrivyAuthModal({ isOpen, onClose, onSuccess, initialRole }: Priv
   const [isSubmitting, setIsSubmitting] = useState(false);
   const otpInputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
-  const { ready, getAccessToken } = usePrivy();
+  const { ready, authenticated, user: privyUser, logout: privyLogout, getAccessToken } = usePrivy();
 
   // Unified callback once Privy authentication finishes (from OAuth, Email, or Passkey)
-  const handleAuthCompleted = async (privyUser: any) => {
+  const handleAuthCompleted = async (completedUser: any) => {
     setErrorMessage(null);
     setStep('enclave');
     setStatusLogs([
-      `Privy Auth Handshake completed (User ID: ${privyUser?.id?.slice(0, 18) || 'did:privy:...'}...)`,
+      `Privy Auth Handshake completed (User ID: ${completedUser?.id?.slice(0, 18) || 'did:privy:...'}...)`,
       'Validating OpenID credentials & TEE attestation...',
     ]);
 
     // Extract real email from authenticated Privy user
     let verifiedEmail = '';
-    if (privyUser?.email?.address) {
-      verifiedEmail = privyUser.email.address;
-    } else if (privyUser?.google?.email) {
-      verifiedEmail = privyUser.google.email;
-    } else if (privyUser?.github?.email) {
-      verifiedEmail = privyUser.github.email;
-    } else if (Array.isArray(privyUser?.linkedAccounts)) {
-      for (const account of privyUser.linkedAccounts) {
+    if (completedUser?.email?.address) {
+      verifiedEmail = completedUser.email.address;
+    } else if (completedUser?.google?.email) {
+      verifiedEmail = completedUser.google.email;
+    } else if (completedUser?.github?.email) {
+      verifiedEmail = completedUser.github.email;
+    } else if (Array.isArray(completedUser?.linkedAccounts)) {
+      for (const account of completedUser.linkedAccounts) {
         if (account.type === 'email' && account.address) {
           verifiedEmail = account.address;
           break;
@@ -64,7 +64,7 @@ export function PrivyAuthModal({ isOpen, onClose, onSuccess, initialRole }: Priv
     }
 
     if (!verifiedEmail) {
-      verifiedEmail = email || `${privyUser?.id ? privyUser.id.slice(10, 22) : 'authenticated'}@privy.user`;
+      verifiedEmail = email || `${completedUser?.id ? completedUser.id.slice(10, 22) : 'authenticated'}@privy.user`;
     }
 
     setTimeout(() => {
@@ -97,10 +97,8 @@ export function PrivyAuthModal({ isOpen, onClose, onSuccess, initialRole }: Priv
           email: verifiedEmail,
           role,
           org: 'Acme Ventures',
+          privyToken: token || undefined,
         });
-        if (token && session) {
-          session.jwt = token;
-        }
         onSuccess(session);
       } catch (err: unknown) {
         setErrorMessage((err as Error).message || 'Failed to create authenticated session');
@@ -113,8 +111,9 @@ export function PrivyAuthModal({ isOpen, onClose, onSuccess, initialRole }: Priv
 
   // Real Privy Email OTP hook
   const { sendCode, loginWithCode } = useLoginWithEmail({
-    onComplete: ({ user: privyUser }) => {
-      handleAuthCompleted(privyUser);
+    onComplete: ({ user: pUser, wasAlreadyAuthenticated }) => {
+      if (wasAlreadyAuthenticated) return;
+      handleAuthCompleted(pUser);
     },
     onError: (err) => {
       setIsSubmitting(false);
@@ -125,8 +124,9 @@ export function PrivyAuthModal({ isOpen, onClose, onSuccess, initialRole }: Priv
 
   // Real Privy OAuth & Modal hook
   const { login: privyLogin } = useLogin({
-    onComplete: ({ user: privyUser }) => {
-      handleAuthCompleted(privyUser);
+    onComplete: ({ user: pUser, wasAlreadyAuthenticated }) => {
+      if (wasAlreadyAuthenticated) return;
+      handleAuthCompleted(pUser);
     },
     onError: (err) => {
       setIsSubmitting(false);
@@ -158,6 +158,9 @@ export function PrivyAuthModal({ isOpen, onClose, onSuccess, initialRole }: Priv
     setIsSubmitting(true);
 
     try {
+      if (authenticated) {
+        await privyLogout();
+      }
       await sendCode({ email });
       setStep('otp');
       setResendTimer(60);
@@ -211,10 +214,13 @@ export function PrivyAuthModal({ isOpen, onClose, onSuccess, initialRole }: Priv
   };
 
   // Real OAuth login through Privy
-  const handleOAuthLogin = (provider: 'google' | 'github') => {
+  const handleOAuthLogin = async (provider: 'google' | 'github') => {
     setErrorMessage(null);
     setIsSubmitting(true);
     try {
+      if (authenticated) {
+        await privyLogout();
+      }
       privyLogin({ loginMethods: [provider] });
     } catch (err: any) {
       setIsSubmitting(false);
@@ -223,14 +229,31 @@ export function PrivyAuthModal({ isOpen, onClose, onSuccess, initialRole }: Priv
   };
 
   // Real Passkey login through Privy
-  const handlePasskeyLogin = () => {
+  const handlePasskeyLogin = async () => {
     setErrorMessage(null);
     setIsSubmitting(true);
     try {
+      if (authenticated) {
+        await privyLogout();
+      }
       privyLogin({ loginMethods: ['passkey'] });
     } catch (err: any) {
       setIsSubmitting(false);
       setErrorMessage(err?.message || 'Failed to initiate passkey authentication.');
+    }
+  };
+
+  const handleMultiMethodLogin = async () => {
+    setErrorMessage(null);
+    setIsSubmitting(true);
+    try {
+      if (authenticated) {
+        await privyLogout();
+      }
+      privyLogin();
+    } catch (err: any) {
+      setIsSubmitting(false);
+      setErrorMessage(err?.message || 'Failed to open Privy modal.');
     }
   };
 
@@ -390,6 +413,51 @@ export function PrivyAuthModal({ isOpen, onClose, onSuccess, initialRole }: Priv
         {/* Step: Input Credentials & Method Selection */}
         {step === 'input' && (
           <div className="flex flex-col gap-5">
+            {/* Active Privy Session Banner */}
+            {authenticated && privyUser && (
+              <div className="border-2 border-forge bg-paper2 p-3 text-xs flex flex-col gap-2 shadow-xs">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-ink uppercase flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-ok inline-block animate-pulse" />
+                    Active Privy Session Detected
+                  </span>
+                  <span className="text-[10px] text-ok uppercase font-bold">● SIGNED IN</span>
+                </div>
+                <div className="text-ink-mut">
+                  Current Identity:{' '}
+                  <strong className="text-ink">
+                    {privyUser?.email?.address ||
+                      privyUser?.google?.email ||
+                      privyUser?.github?.email ||
+                      (privyUser?.id ? `${privyUser.id.slice(0, 18)}...` : 'Privy User')}
+                  </strong>
+                </div>
+                <div className="flex gap-2 mt-1">
+                  <BlockButton
+                    type="button"
+                    onClick={() => handleAuthCompleted(privyUser)}
+                    className="text-xs py-1.5 px-3 flex-1 font-bold"
+                  >
+                    CONTINUE AS THIS USER
+                  </BlockButton>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setIsSubmitting(true);
+                      try {
+                        await privyLogout();
+                      } finally {
+                        setIsSubmitting(false);
+                      }
+                    }}
+                    className="border border-ink bg-paper text-ink hover:bg-err hover:text-paper hover:border-err text-xs py-1.5 px-3 uppercase cursor-pointer font-bold transition-colors"
+                  >
+                    SIGN OUT / SWITCH
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Method Tabs */}
             <div className="grid grid-cols-3 border border-ink bg-paper2 text-xs font-bold">
               <button
@@ -501,7 +569,7 @@ export function PrivyAuthModal({ isOpen, onClose, onSuccess, initialRole }: Priv
                 </button>
                 <button
                   type="button"
-                  onClick={() => privyLogin()}
+                  onClick={handleMultiMethodLogin}
                   disabled={isSubmitting || !ready}
                   className="border border-line bg-paper2 hover:bg-paper p-2.5 text-xs uppercase flex items-center justify-center gap-2 cursor-pointer transition-colors text-ink-mut font-bold"
                 >
