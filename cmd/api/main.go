@@ -17,6 +17,7 @@ import (
 	db "github.com/foundereum/foundereum/internal/db/gen"
 	"github.com/foundereum/foundereum/internal/httpx"
 	"github.com/foundereum/foundereum/internal/ledger"
+	"github.com/foundereum/foundereum/internal/names"
 	"github.com/foundereum/foundereum/internal/policy"
 	"github.com/foundereum/foundereum/internal/privy"
 	"github.com/foundereum/foundereum/internal/tools"
@@ -487,9 +488,9 @@ func main() {
 		if req.Role != "" {
 			role = req.Role
 		}
-		orgName := "Workspace"
-		if req.Org != "" {
-			orgName = req.Org
+		orgName := req.Org
+		if names.IsGenericOrgName(orgName) {
+			orgName = names.RandomOrgName()
 		}
 
 		userNamespace := uuid.MustParse("e0f4a240-8f92-491c-b8e7-8b0123456789")
@@ -500,23 +501,44 @@ func main() {
 			orgName = "Acme Ventures"
 		} else {
 			userID = uuid.NewSHA1(userNamespace, []byte("user:"+email))
-			orgID = uuid.NewSHA1(userNamespace, []byte("org:"+email))
+			personalOrgID := uuid.NewSHA1(userNamespace, []byte("org:"+email))
+			orgID = personalOrgID
 
-			// If user already belongs to or was invited to an existing org, default session to it
-			if req.Org == "" && pgPool != nil {
-				var eOrgID uuid.UUID
-				var eOrgName, eRole string
-				err := pgPool.QueryRow(r.Context(), `
-					SELECT m.org_id, o.name, m.role 
-					FROM members m 
-					JOIN orgs o ON o.id = m.org_id 
-					WHERE LOWER(m.email) = LOWER($1) 
-					ORDER BY CASE WHEN m.status = 'active' THEN 1 ELSE 2 END, m.created_at DESC 
-					LIMIT 1`, email).Scan(&eOrgID, &eOrgName, &eRole)
-				if err == nil {
-					orgID = eOrgID
-					orgName = eOrgName
-					role = eRole
+			// Auto-heal / ensure personal workspace exists in DB
+			if pgPool != nil {
+				var existingOrgName string
+				if err := pgPool.QueryRow(r.Context(), "SELECT name FROM orgs WHERE id = $1", personalOrgID).Scan(&existingOrgName); err == nil {
+					if !names.IsGenericOrgName(existingOrgName) {
+						orgName = existingOrgName
+					} else {
+						orgName = names.RandomOrgName()
+						_, _ = pgPool.Exec(r.Context(), "UPDATE orgs SET name = $1 WHERE id = $2", orgName, personalOrgID)
+					}
+				} else {
+					_, _ = pgPool.Exec(r.Context(), "INSERT INTO orgs (id, name) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING", personalOrgID, orgName)
+				}
+				_, _ = pgPool.Exec(r.Context(), "INSERT INTO members (org_id, user_id, email, role, status) VALUES ($1, $2, $3, 'owner', 'active') ON CONFLICT (org_id, email) DO UPDATE SET user_id = EXCLUDED.user_id", personalOrgID, userID, email)
+
+				// If user already belongs to or was invited to an existing org, default session to it if personal org has no projects
+				if req.Org == "" {
+					var eOrgID uuid.UUID
+					var eOrgName, eRole, eStatus string
+					err := pgPool.QueryRow(r.Context(), `
+						SELECT m.org_id, o.name, m.role, m.status 
+						FROM members m 
+						JOIN orgs o ON o.id = m.org_id 
+						WHERE LOWER(m.email) = LOWER($1) AND m.org_id != $2
+						ORDER BY CASE WHEN m.status = 'active' THEN 1 ELSE 2 END, m.created_at DESC 
+						LIMIT 1`, email, personalOrgID).Scan(&eOrgID, &eOrgName, &eRole, &eStatus)
+					if err == nil && eStatus == "active" {
+						var personalProjCount int
+						_ = pgPool.QueryRow(r.Context(), "SELECT COUNT(*) FROM projects WHERE org_id = $1", personalOrgID).Scan(&personalProjCount)
+						if personalProjCount == 0 {
+							orgID = eOrgID
+							orgName = eOrgName
+							role = eRole
+						}
+					}
 				}
 			}
 		}
@@ -569,6 +591,36 @@ func main() {
 				httpx.Err(w, http.StatusUnauthorized, "UNAUTHORIZED", "authentication required")
 				return
 			}
+			userNamespace := uuid.MustParse("e0f4a240-8f92-491c-b8e7-8b0123456789")
+			personalOrgID := uuid.NewSHA1(userNamespace, []byte("org:"+claims.Email))
+
+			if pgPool != nil && claims.Email != "operator@foundereum.org" {
+				// Ensure personal org exists
+				var exists bool
+				_ = pgPool.QueryRow(r.Context(), "SELECT EXISTS(SELECT 1 FROM members WHERE org_id = $1 AND LOWER(email) = LOWER($2))", personalOrgID, claims.Email).Scan(&exists)
+				if !exists {
+					pOrgName := names.RandomOrgName()
+					_, _ = pgPool.Exec(r.Context(), "INSERT INTO orgs (id, name) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING", personalOrgID, pOrgName)
+					_, _ = pgPool.Exec(r.Context(), "INSERT INTO members (org_id, user_id, email, role, status) VALUES ($1, $2, $3, 'owner', 'active') ON CONFLICT (org_id, email) DO NOTHING", personalOrgID, claims.UserID, claims.Email)
+				}
+
+				// Rename legacy generic "Acme Ventures" or "Workspace" orgs (excluding demo org) to unique random names
+				var legacyOrgs []uuid.UUID
+				rows, err := pgPool.Query(r.Context(), "SELECT id FROM orgs WHERE (name = 'Acme Ventures' OR name = 'Workspace') AND id != '00000000-0000-0000-0000-000000000001'")
+				if err == nil {
+					for rows.Next() {
+						var lID uuid.UUID
+						if err := rows.Scan(&lID); err == nil {
+							legacyOrgs = append(legacyOrgs, lID)
+						}
+					}
+					rows.Close()
+					for _, lID := range legacyOrgs {
+						_, _ = pgPool.Exec(r.Context(), "UPDATE orgs SET name = $1 WHERE id = $2", names.RandomOrgName(), lID)
+					}
+				}
+			}
+
 			var results []map[string]any
 			if pgPool != nil {
 				rows, err := pgPool.Query(r.Context(), `
@@ -603,7 +655,7 @@ func main() {
 							status, _ := m["status"].(string)
 							results = append(results, map[string]any{
 								"org_id":    oID,
-								"org_name":  "Acme Ventures",
+								"org_name":  "Personal Workspace",
 								"role":      role,
 								"status":    status,
 								"is_active": oID == claims.OrgID.String(),
@@ -690,20 +742,22 @@ func main() {
 				if err == nil {
 					found = true
 					_ = pgPool.QueryRow(r.Context(), "SELECT name FROM orgs WHERE id = $1", oUUID).Scan(&orgName)
+					_, _ = pgPool.Exec(r.Context(), "UPDATE members SET status = 'active', user_id = $1 WHERE org_id = $2 AND LOWER(email) = LOWER($3)", claims.UserID, oUUID, claims.Email)
 				}
 			}
 			if !found {
-				memStore.mu.RLock()
+				memStore.mu.Lock()
 				for _, m := range memStore.members[req.OrgID] {
 					if mEmail, ok := m["email"].(string); ok && strings.EqualFold(mEmail, claims.Email) {
 						found = true
+						m["status"] = "active"
 						if r, ok := m["role"].(string); ok {
 							role = r
 						}
 						break
 					}
 				}
-				memStore.mu.RUnlock()
+				memStore.mu.Unlock()
 			}
 			if !found {
 				httpx.Err(w, http.StatusForbidden, "FORBIDDEN", "you are not a member of this organization")
@@ -884,12 +938,13 @@ func main() {
 			// If the user's organization has no projects yet, auto-provision starter project
 			if len(list) == 0 {
 				projID := uuid.NewString()
+				pName := names.RandomProjectName()
 				starterProj := map[string]any{
 					"id":                      projID,
 					"org_id":                  orgIDStr,
 					"user_id":                 claims.UserID.String(),
-					"name":                    "market-scout",
-					"slug":                    "market-scout",
+					"name":                    pName,
+					"slug":                    pName,
 					"status":                  "active",
 					"hcs_topic_id":            auditTopicID,
 					"quorum_threshold":        2,
@@ -938,7 +993,7 @@ func main() {
 							INSERT INTO projects (id, org_id, slug, name, status, hcs_topic_id, quorum_threshold, withdraw_quorum_min_usd)
 							VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 							ON CONFLICT (id) DO NOTHING
-						`, pUUID, claims.OrgID, "market-scout", "market-scout", "active", auditTopicID, 2, minUSD)
+						`, pUUID, claims.OrgID, pName, pName, "active", auditTopicID, 2, minUSD)
 					}
 					_, _ = queries.CreateWallet(r.Context(), db.CreateWalletParams{
 						ProjectID:       toPgUUID(pUUID),
@@ -990,6 +1045,9 @@ func main() {
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 				httpx.Err(w, http.StatusBadRequest, "INVALID_BODY", err.Error())
 				return
+			}
+			if req.Name == "" || names.IsGenericProjectName(req.Name) {
+				req.Name = names.RandomProjectName()
 			}
 			if req.Slug == "" {
 				req.Slug = strings.ToLower(strings.ReplaceAll(req.Name, " ", "-"))

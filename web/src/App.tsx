@@ -59,7 +59,7 @@ export default function App() {
   const [orgMembers, setOrgMembers] = useState<OrgMember[]>([]);
   const [currentOrg, setCurrentOrg] = useState<{ id: string; name: string }>({
     id: '00000000-0000-0000-0000-000000000001',
-    name: 'Acme Ventures',
+    name: 'My Workspace',
   });
   const [orgMemberships, setOrgMemberships] = useState<UserOrgMembership[]>([]);
 

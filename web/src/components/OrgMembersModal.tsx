@@ -62,7 +62,7 @@ export function OrgMembersModal({
               </span>
             </div>
             <h2 className="text-xl font-bold uppercase tracking-tight text-ink mt-1">
-              {currentOrg.name || 'Acme Ventures'}
+              {currentOrg.name || 'Workspace'}
             </h2>
             <p className="text-xs text-ink-mut">
               Multi-party governance, Approver Quorums &amp; Team Permissions (Doc 01 §3)
@@ -92,9 +92,14 @@ export function OrgMembersModal({
         {/* Organizations & Invitations */}
         {orgMemberships.length > 0 && (
           <div className="flex flex-col gap-2">
-            <span className="text-xs uppercase font-bold text-ink">
-              Your Organizations &amp; Invitations ({orgMemberships.length})
-            </span>
+            <div className="flex justify-between items-center">
+              <span className="text-xs uppercase font-bold text-ink">
+                Your Organizations &amp; Workspaces ({orgMemberships.length})
+              </span>
+              <span className="text-[10px] text-ink-mut">
+                Click to switch active workspace anytime
+              </span>
+            </div>
             <div className="border border-ink bg-paper flex flex-col max-h-48 overflow-y-auto">
               {orgMemberships.map((org) => {
                 const isCurrent = org.org_id === currentOrg.id || org.is_active;
@@ -102,14 +107,14 @@ export function OrgMembersModal({
                 return (
                   <div
                     key={org.org_id}
-                    className="flex items-center justify-between p-2.5 border-b border-ink last:border-b-0 text-xs font-mono"
+                    className={`flex items-center justify-between p-2.5 border-b border-ink last:border-b-0 text-xs font-mono ${isCurrent ? 'bg-paper2' : 'hover:bg-paper2/50'}`}
                   >
                     <div className="flex items-center gap-2">
                       <span className={`w-2 h-2 rounded-full ${isCurrent ? 'bg-ok' : isInvited ? 'bg-forge animate-pulse' : 'bg-ink-mut'}`} />
                       <div>
-                        <div className="font-bold text-ink">
-                          {org.org_name}
-                          {isCurrent && <span className="ml-1 text-[10px] text-ok font-normal">(current active)</span>}
+                        <div className="font-bold text-ink flex items-center gap-2">
+                          <span>{org.org_name}</span>
+                          {isCurrent && <span className="text-[10px] text-ok font-normal border border-ok px-1 py-0.2 uppercase">[active workspace]</span>}
                         </div>
                         <div className="text-[10px] text-ink-mut uppercase">
                           Role: [{org.role}] · Status: {org.status}
@@ -120,7 +125,10 @@ export function OrgMembersModal({
                       {isInvited && onAcceptInvite ? (
                         <BlockButton
                           type="button"
-                          onClick={() => onAcceptInvite(org.org_id)}
+                          onClick={() => {
+                            onAcceptInvite(org.org_id);
+                            onClose();
+                          }}
                           className="text-[10px] py-1 px-3 font-bold"
                         >
                           ACCEPT INVITATION
@@ -128,13 +136,16 @@ export function OrgMembersModal({
                       ) : !isCurrent && onSwitchOrg ? (
                         <PillButton
                           type="button"
-                          onClick={() => onSwitchOrg(org.org_id)}
-                          className="text-[10px] py-1 px-3"
+                          onClick={() => {
+                            onSwitchOrg(org.org_id);
+                            onClose();
+                          }}
+                          className="text-[10px] py-1 px-3 hover:bg-ink hover:text-paper font-bold"
                         >
-                          SWITCH ORG
+                          SWITCH TO THIS WORKSPACE
                         </PillButton>
                       ) : (
-                        <span className="text-[10px] text-ok font-bold uppercase">✓ ACTIVE</span>
+                        <span className="text-[10px] text-ok font-bold uppercase">✓ CURRENT</span>
                       )}
                     </div>
                   </div>

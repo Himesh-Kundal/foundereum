@@ -2,6 +2,7 @@ import { PillButton } from '../Buttons';
 import { SpendMeter } from '../SpendMeter';
 import { ThemeToggle } from '../ThemeToggle';
 import type { ProjectSummary, UserSession } from '../../types';
+import type { UserOrgMembership } from '../../api';
 
 export interface HeaderProps {
   activeProjectId: string;
@@ -15,6 +16,9 @@ export interface HeaderProps {
   orgMembersCount: number;
   onOpenOrgModal: () => void;
   onSignOut: () => void;
+  currentOrg?: { id: string; name: string };
+  orgMemberships?: UserOrgMembership[];
+  onSwitchOrg?: (orgId: string) => Promise<void>;
 }
 
 export function Header({
@@ -29,10 +33,13 @@ export function Header({
   orgMembersCount,
   onOpenOrgModal,
   onSignOut,
+  currentOrg,
+  orgMemberships = [],
+  onSwitchOrg,
 }: HeaderProps) {
   return (
     <header className="border-b border-ink bg-paper flex items-center justify-between px-4 h-14 shrink-0 font-mono">
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-3">
         <img
           src="/logo.png"
           alt="Foundereum"
@@ -45,23 +52,52 @@ export function Header({
         >
           Foundereum
         </span>
-        <div className="h-4 w-px bg-ink mx-2" />
+        <div className="h-4 w-px bg-ink mx-1 hidden sm:block" />
         
+        {/* Organization / Workspace Switcher */}
+        <div className="flex items-center gap-1.5 bg-paper2 border border-ink px-2 py-1">
+          <span className="text-[10px] text-forge uppercase font-bold hidden md:inline">ORG:</span>
+          <select
+            value={currentOrg?.id || ''}
+            onChange={(e) => {
+              if (e.target.value && e.target.value !== currentOrg?.id && onSwitchOrg) {
+                onSwitchOrg(e.target.value);
+              }
+            }}
+            className="text-xs bg-transparent border-none outline-none cursor-pointer font-bold max-w-[120px] md:max-w-[160px] truncate text-ink"
+            title="Switch Workspace Organization"
+          >
+            {orgMemberships && orgMemberships.length > 0 ? (
+              orgMemberships.map((org) => (
+                <option key={org.org_id} value={org.org_id} className="bg-paper text-ink">
+                  {org.org_name} {org.status === 'invited' ? '⚡ (Invite)' : ''}
+                </option>
+              ))
+            ) : (
+              <option value={currentOrg?.id || ''} className="bg-paper text-ink">
+                {currentOrg?.name || 'Workspace'}
+              </option>
+            )}
+          </select>
+        </div>
+
         {/* Project Switcher */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 bg-paper2 border border-ink px-2 py-1">
+          <span className="text-[10px] text-ink-mut uppercase font-bold hidden md:inline">PROJ:</span>
           <select 
             value={activeProjectId}
             onChange={(e) => onSelectProject(e.target.value)}
-            className="text-sm bg-paper2 border border-ink px-2 py-1 outline-none cursor-pointer"
+            className="text-xs bg-transparent border-none outline-none cursor-pointer font-bold max-w-[110px] md:max-w-[150px] truncate text-ink"
+            title="Switch Agent Project"
           >
             {projects.map(p => (
-              <option key={p.id} value={p.id}>{p.name}</option>
+              <option key={p.id} value={p.id} className="bg-paper text-ink">{p.name}</option>
             ))}
           </select>
           <button 
             type="button" 
             onClick={onOpenNewProject}
-            className="text-xs border border-ink px-2 py-1 hover:bg-ink hover:text-paper transition-colors font-bold cursor-pointer"
+            className="text-xs border-l border-ink pl-1.5 hover:text-forge transition-colors font-bold cursor-pointer"
             title="Create new project"
           >
             +
@@ -102,9 +138,9 @@ export function Header({
               type="button"
               onClick={onOpenOrgModal}
               className="border border-ink px-2 py-1 text-xs uppercase hover:bg-ink hover:text-paper font-bold cursor-pointer transition-colors"
-              title="Manage Team & Organization"
+              title="Manage Team & Organizations"
             >
-              TEAM ({orgMembersCount})
+              TEAM ({orgMembersCount}){orgMemberships.length > 1 ? ` · ORGS (${orgMemberships.length})` : ''}
             </button>
           </div>
         )}

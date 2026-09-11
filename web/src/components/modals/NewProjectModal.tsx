@@ -1,5 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { BlockButton, PillButton } from '../Buttons';
+import { generateProjectName } from '../../utils/randomNames';
+import { Dices } from 'lucide-react';
 
 export interface NewProjectModalProps {
   isOpen: boolean;
@@ -11,6 +13,12 @@ export function NewProjectModal({ isOpen, onClose, onCreate }: NewProjectModalPr
   const [name, setName] = useState('');
   const [preset, setPreset] = useState('standard');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (isOpen && !name) {
+      setName(generateProjectName());
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -42,16 +50,29 @@ export function NewProjectModal({ isOpen, onClose, onCreate }: NewProjectModalPr
         </div>
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <div className="flex flex-col gap-1">
-            <label className="text-xs uppercase text-ink-mut font-bold">Project Name</label>
-            <input 
-              type="text" 
-              value={name} 
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. quant-trader" 
-              className="border border-ink bg-paper2 p-2 font-mono text-sm outline-none focus:border-forge"
-              required
-              disabled={isSubmitting}
-            />
+            <div className="flex justify-between items-center">
+              <label className="text-xs uppercase text-ink-mut font-bold">Project / Agent Name</label>
+              <button
+                type="button"
+                onClick={() => setName(generateProjectName())}
+                className="text-[11px] text-ink hover:text-forge flex items-center gap-1 font-bold cursor-pointer transition-colors"
+                title="Roll random agent name"
+              >
+                <Dices size={12} />
+                <span>RANDOMIZE</span>
+              </button>
+            </div>
+            <div className="flex gap-2">
+              <input 
+                type="text" 
+                value={name} 
+                onChange={(e) => setName(e.target.value)}
+                placeholder="e.g. neural-scout" 
+                className="flex-1 border border-ink bg-paper2 p-2 font-mono text-sm outline-none focus:border-forge"
+                required
+                disabled={isSubmitting}
+              />
+            </div>
           </div>
           <div className="flex flex-col gap-1">
             <label className="text-xs uppercase text-ink-mut font-bold">Policy Template</label>

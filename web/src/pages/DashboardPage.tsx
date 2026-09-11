@@ -220,6 +220,9 @@ export function DashboardPage({
         orgMembersCount={orgMembers.length}
         onOpenOrgModal={() => setIsOrgModalOpen(true)}
         onSignOut={onSignOut}
+        currentOrg={currentOrg}
+        orgMemberships={orgMemberships}
+        onSwitchOrg={onSwitchOrg}
       />
 
       {/* Pending Invitations Banner */}

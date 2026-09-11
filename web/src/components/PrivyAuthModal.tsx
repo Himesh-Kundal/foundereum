@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { usePrivy, useLogin, useLoginWithEmail } from '@privy-io/react-auth';
 import { BlockButton } from './Buttons';
 import { api, type AuthSession } from '../api';
+import { generateOrgName } from '../utils/randomNames';
 
 interface PrivyAuthModalProps {
   isOpen: boolean;
@@ -96,7 +97,7 @@ export function PrivyAuthModal({ isOpen, onClose, onSuccess, initialRole }: Priv
         const session = await api.sessionLogin({
           email: verifiedEmail,
           role,
-          org: 'Acme Ventures',
+          org: generateOrgName(),
           privyToken: token || undefined,
         });
         onSuccess(session);
@@ -273,7 +274,7 @@ export function PrivyAuthModal({ isOpen, onClose, onSuccess, initialRole }: Priv
         const session = await api.sessionLogin({
           email: devEmail,
           role: devRole,
-          org: 'Acme Ventures',
+          org: generateOrgName(),
         });
         onSuccess(session);
       } catch (err: unknown) {
