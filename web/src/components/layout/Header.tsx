@@ -1,5 +1,4 @@
 import { PillButton } from '../Buttons';
-import { SpendMeter } from '../SpendMeter';
 import { ThemeToggle } from '../ThemeToggle';
 import type { ProjectSummary, UserSession } from '../../types';
 import type { UserOrgMembership } from '../../api';
@@ -42,25 +41,23 @@ export function Header({
   onOpenRenameProject,
 }: HeaderProps) {
   return (
-    <header className="border-b border-ink bg-paper flex items-center justify-between px-4 h-14 shrink-0 font-mono">
-      <div className="flex items-center gap-3">
-        <img
-          src="/logo.png"
-          alt="Foundereum"
-          className="w-6 h-6 cursor-pointer"
+    <header className="border-b border-ink bg-paper flex items-center justify-between px-3 md:px-4 h-14 shrink-0 font-mono gap-2 overflow-x-auto select-none">
+      {/* Left: Breadcrumbs Brand / Org / Agent */}
+      <div className="flex items-center gap-2 shrink-0">
+        <div
+          className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity shrink-0"
           onClick={() => onNavigate('landing')}
-        />
-        <span 
-          className="font-bold tracking-tight hidden sm:block cursor-pointer" 
-          onClick={() => onNavigate('landing')}
+          title="Foundereum Home"
         >
-          Foundereum
-        </span>
-        <div className="h-4 w-px bg-ink mx-1 hidden sm:block" />
-        
-        {/* Organization / Workspace Switcher */}
-        <div className="flex items-center gap-1 bg-paper2 border border-ink px-2 py-1">
-          <span className="text-[10px] text-forge uppercase font-bold hidden md:inline" title="Organization Workspace (Company/Team)">
+          <img src="/logo.png" alt="Foundereum" className="w-5 h-5" />
+          <span className="font-bold tracking-tight text-sm hidden sm:inline">Foundereum</span>
+        </div>
+
+        <span className="text-ink-mut/40 font-mono text-xs hidden sm:inline">/</span>
+
+        {/* Workspace / Org Switcher */}
+        <div className="flex items-center bg-paper2 border border-ink px-2 py-0.5 text-xs shrink-0">
+          <span className="text-[10px] text-forge uppercase font-bold mr-1 hidden lg:inline" title="Workspace (Company/Team)">
             ORG:
           </span>
           <select
@@ -70,13 +67,13 @@ export function Header({
                 onSwitchOrg(e.target.value);
               }
             }}
-            className="text-xs bg-transparent border-none outline-none cursor-pointer font-bold max-w-[110px] md:max-w-[150px] truncate text-ink"
-            title="Switch Workspace Organization (Company/Team)"
+            className="bg-transparent border-none outline-none cursor-pointer font-bold max-w-[100px] md:max-w-[130px] truncate text-ink"
+            title="Switch Workspace Organization"
           >
             {orgMemberships && orgMemberships.length > 0 ? (
               orgMemberships.map((org) => (
                 <option key={org.org_id} value={org.org_id} className="bg-paper text-ink">
-                  {org.org_name} {org.status === 'invited' ? '⚡ (Invite)' : ''}
+                  {org.org_name} {org.status === 'invited' ? '⚡' : ''}
                 </option>
               ))
             ) : (
@@ -89,35 +86,44 @@ export function Header({
             <button
               type="button"
               onClick={onOpenRenameOrg}
-              className="text-[11px] text-ink-mut hover:text-forge transition-colors px-1 cursor-pointer font-bold"
-              title="Rename this Organization"
+              className="text-[11px] text-ink-mut hover:text-forge transition-colors pl-1 font-bold cursor-pointer"
+              title="Rename Workspace"
             >
               ✎
             </button>
           )}
         </div>
 
-        {/* Project Switcher */}
-        <div className="flex items-center gap-1 bg-paper2 border border-ink px-2 py-1">
-          <span className="text-[10px] text-ink-mut uppercase font-bold hidden md:inline" title="AI Agent Project">
-            PROJ:
+        <span className="text-ink-mut/40 font-mono text-xs hidden sm:inline">/</span>
+
+        {/* Project / Agent Switcher */}
+        <div className="flex items-center bg-paper2 border border-ink px-2 py-0.5 text-xs shrink-0">
+          <span className="text-[10px] text-ink-mut uppercase font-bold mr-1 hidden lg:inline" title="AI Agent Project">
+            AGENT:
           </span>
           <select 
             value={activeProjectId}
-            onChange={(e) => onSelectProject(e.target.value)}
-            className="text-xs bg-transparent border-none outline-none cursor-pointer font-bold max-w-[100px] md:max-w-[140px] truncate text-ink"
-            title="Switch Agent Project (AI Agent)"
+            onChange={(e) => {
+              if (e.target.value === '__all__') {
+                onNavigate('projects');
+              } else {
+                onSelectProject(e.target.value);
+              }
+            }}
+            className="bg-transparent border-none outline-none cursor-pointer font-bold max-w-[95px] md:max-w-[130px] truncate text-ink"
+            title="Switch Agent Project"
           >
-            {projects.map(p => (
+            {projects.map((p) => (
               <option key={p.id} value={p.id} className="bg-paper text-ink">{p.name}</option>
             ))}
+            <option value="__all__" className="bg-paper text-forge font-bold">All Agents ({projects.length}) →</option>
           </select>
           {onOpenRenameProject && (
             <button
               type="button"
               onClick={onOpenRenameProject}
-              className="text-[11px] text-ink-mut hover:text-forge transition-colors px-1 cursor-pointer font-bold"
-              title="Rename this Agent Project"
+              className="text-[11px] text-ink-mut hover:text-forge transition-colors px-1 font-bold cursor-pointer"
+              title="Rename Agent Project"
             >
               ✎
             </button>
@@ -125,57 +131,53 @@ export function Header({
           <button 
             type="button" 
             onClick={onOpenNewProject}
-            className="text-xs border-l border-ink pl-1.5 hover:text-forge transition-colors font-bold cursor-pointer"
-            title="Create new AI agent project"
+            className="text-xs border-l border-ink pl-1.5 ml-0.5 hover:text-forge transition-colors font-bold cursor-pointer"
+            title="Create new AI Agent"
           >
             +
-          </button>
-          <button
-            type="button"
-            onClick={() => onNavigate('projects')}
-            className="text-xs text-ink-mut underline hover:text-forge hidden lg:inline ml-1 cursor-pointer"
-          >
-            all ({projects.length})
           </button>
         </div>
       </div>
 
-      <div className="flex items-center gap-4">
+      {/* Right Controls */}
+      <div className="flex items-center gap-2 md:gap-3 shrink-0">
         <button
           type="button"
           onClick={() => onNavigate('docs')}
-          className="hidden sm:block text-xs uppercase hover:text-forge transition-colors underline cursor-pointer"
+          className="hidden md:block text-xs uppercase hover:text-forge transition-colors underline cursor-pointer shrink-0"
         >
           DOCS ↗
         </button>
-        <div className="hidden md:flex items-center gap-2 text-xs">
-          <span className="text-ink-mut">24h</span>
-          <SpendMeter spent={spend24h} limit={spendLimit} />
+
+        {/* Compact spend badge */}
+        <div className="hidden 2xl:flex items-center gap-1 text-xs text-ink-mut bg-paper2 border border-ink px-2 py-0.5 shrink-0">
+          <span className="text-ink font-bold">${spend24h.toFixed(2)}</span>
+          <span>/${spendLimit.toFixed(0)}</span>
+          <span className="text-[10px]">24h</span>
         </div>
-        <div className="h-4 w-px bg-ink hidden md:block mx-2" />
-        
+
         {user && (
-          <div className="flex items-center gap-2">
-            <span className="border border-ink px-2 py-0.5 text-[10px] font-bold uppercase bg-paper2 hidden sm:inline">
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span className="border border-ink px-1.5 py-0.5 text-[10px] font-bold uppercase bg-paper2 hidden xl:inline">
               [{user.role}]
             </span>
-            <span className="text-xs text-ink font-bold hidden xl:inline">
+            <span className="text-xs text-ink font-bold max-w-[120px] truncate hidden xl:inline" title={user.email}>
               {user.email}
             </span>
             <button
               type="button"
               onClick={onOpenOrgModal}
-              className="border border-ink px-2 py-1 text-xs uppercase hover:bg-ink hover:text-paper font-bold cursor-pointer transition-colors"
-              title="Manage Team & Organizations"
+              className="border border-ink px-2 py-1 text-xs uppercase hover:bg-ink hover:text-paper font-bold cursor-pointer transition-colors shrink-0"
+              title="Manage Team & Workspaces"
             >
-              TEAM ({orgMembersCount}){orgMemberships.length > 1 ? ` · ORGS (${orgMemberships.length})` : ''}
+              TEAM ({orgMembersCount})
             </button>
           </div>
         )}
 
         <ThemeToggle />
 
-        <PillButton onClick={onSignOut} className="hover:border-err hover:text-err">
+        <PillButton onClick={onSignOut} className="hover:border-err hover:text-err text-xs py-1 px-3 shrink-0">
           SIGN OUT
         </PillButton>
       </div>
