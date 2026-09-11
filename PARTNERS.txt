@@ -1,0 +1,105 @@
+================================================================================
+FOUNDEREUM — HACKATHON PARTNER SUBMISSION & CODE REFERENCES
+Repository: https://github.com/Himesh-Kundal/foundereum
+Live App:   https://app.foundereum.org
+================================================================================
+
+--------------------------------------------------------------------------------
+1. HEDERA ($15,000 Prize Category)
+--------------------------------------------------------------------------------
+Why Foundereum is applicable:
+Foundereum uses Hedera as the foundational micro-settlement, audit, and smart 
+contract execution layer for autonomous AI agents. Every agent tool invocation 
+is gated by HTTP 402 (x402) micropayments denominated in HTS USDC settled on 
+Hedera Testnet. The Blocky402 facilitator pays network transaction fees, while 
+Hedera Consensus Service (HCS) immutably logs every settled tool call, payment 
+receipt, and policy evaluation to a public audit topic. Agents also interact with 
+Hedera EVM (Chain ID 296) for DEX token swaps and decentralized agent identity.
+
+Partner Ease-of-Use Rating: 9/10
+Feedback: HCS consensus finality and HTS token transfer performance are 
+outstanding for sub-second agentic tool execution. The hiero-sdk-go / hedera-sdk-go 
+made token transfer construction and topic submission seamless.
+
+Key Code Permalinks:
+* HTS Token Transfer Construction & Serialization:
+  https://github.com/Himesh-Kundal/foundereum/blob/main/internal/x402/hedera/transfer.go#L13-L50
+* HCS Consensus Topic Publishing (Topic 0.0.10442234):
+  https://github.com/Himesh-Kundal/foundereum/blob/main/internal/hcs/hcs.go#L33-L75
+* Hedera x402 Facilitator Settlement Pipeline:
+  https://github.com/Himesh-Kundal/foundereum/blob/main/cmd/gateway/main.go#L71-L80
+* Hedera Network Configuration & Client Setup:
+  https://github.com/Himesh-Kundal/foundereum/blob/main/internal/hedera/hedera.go#L18-L55
+
+
+--------------------------------------------------------------------------------
+2. THE GRAPH ($15,000 Prize Category)
+--------------------------------------------------------------------------------
+Why Foundereum is applicable:
+Foundereum equips AI agents with Model Context Protocol (MCP) tools that query 
+The Graph's decentralized network. Through standardized Messari DEX subgraphs, 
+agents can query real-time pool metrics, liquidity depth, daily volume, and 
+compare protocol TVL across chains. Tool calls are dynamically metered and paid 
+per query KB. To prevent prompt injection and indirect jailbreaks, all raw 
+subgraph payloads returned to LLMs are sanitized and strictly enveloped with 
+`data (untrusted):` guardrails.
+
+Partner Ease-of-Use Rating: 9/10
+Feedback: Standardized schemas (Messari) provide consistent GraphQL interfaces 
+for agent tool calling across multiple protocols. Subgraph indexing speed and 
+GraphQL query latency were smooth and highly reliable.
+
+Key Code Permalinks:
+* MCP Subgraph Tool Registration & Pricing Rules:
+  https://github.com/Himesh-Kundal/foundereum/blob/main/internal/tools/graph/graph_tools.go#L13-L70
+* Standardized Subgraph MCP Sidecar Proxy:
+  https://github.com/Himesh-Kundal/foundereum/blob/main/sidecars/subgraph-mcp/server.js#L33-L80
+* Prompt Injection Guardrails (`data (untrusted):`):
+  https://github.com/Himesh-Kundal/foundereum/blob/main/internal/mcpserver/server.go#L262-L267
+
+
+--------------------------------------------------------------------------------
+3. PRIVY ($5,000 Prize Category)
+--------------------------------------------------------------------------------
+Why Foundereum is applicable:
+Foundereum leverages Privy Server Wallets within secure Trusted Execution 
+Environments (TEEs) to manage private keys for both project treasuries and 
+autonomous agents. Agents sign micro-settlement transfers and EVM contract calls 
+without ever having direct access to raw private keys. Foundereum integrates 
+Privy with WebCrypto P-256 multi-party quorum signatures, enforcing strict 
+m-of-n human approvals for withdrawals exceeding policy thresholds.
+
+Partner Ease-of-Use Rating: 9/10
+Feedback: Privy Server Wallets API made non-custodial agent authorization simple 
+and cryptographically sound. TEE-backed signing provides defense-in-depth against 
+compromised agent runtimes.
+
+Key Code Permalinks:
+* Privy TEE Server Wallets & Remote Signing Client:
+  https://github.com/Himesh-Kundal/foundereum/blob/main/internal/privy/client.go#L43-L90
+* Privy Wallet Signer Interface Implementation:
+  https://github.com/Himesh-Kundal/foundereum/blob/main/internal/wallet/wallet.go#L60-L100
+* WebCrypto P-256 Multi-Party Quorum Approval Workflow:
+  https://github.com/Himesh-Kundal/foundereum/blob/main/web/src/components/ApprovalCard.tsx#L60-L90
+
+
+================================================================================
+AI TOOLS USAGE (150 Words Submission Copy)
+================================================================================
+We used a phased AI workflow across architecture, development, and verification:
+
+1. Architecture & System Design: Fable generated comprehensive system architecture, 
+   threat models, double-entry ledger invariants, and x402 state-machine diagrams.
+2. Core Implementation: Antigravity powered by Gemini 2.5 Flash built the Go backend 
+   services (REST API, x402 gateway, MCP server, background worker), PostgreSQL 
+   migrations, sqlc queries, and React/Tailwind frontend components.
+3. Verification & Quality Assurance: Claude 3.7 Sonnet / Opus formulated our 
+   exhaustive 8-layer verification plan and security test matrix, auditing double-entry 
+   invariants, race conditions, and TEE signing boundaries.
+4. Refinement & Automated Testing: Gemini 2.5 Flash executed end-to-end integration 
+   tests, fixed Docker/CI deployment pipelines, and built headless browser Puppeteer 
+   suites across all 12 user journeys.
+
+This tiered multi-model strategy ensured rigorous architectural foundations, rapid 
+idiomatic Go development, and bulletproof security audit coverage.
+================================================================================
