@@ -14,6 +14,7 @@ import { TopUpModal } from '../components/modals/TopUpModal';
 import { WithdrawModal } from '../components/modals/WithdrawModal';
 import { OrgMembersModal } from '../components/OrgMembersModal';
 import { RotatedKeyModal } from '../components/modals/RotatedKeyModal';
+import { RenameModal } from '../components/modals/RenameModal';
 import type { 
   Tab, 
   UserSession, 
@@ -63,6 +64,8 @@ export interface DashboardPageProps {
   onPushPolicy: (policyJson: string) => Promise<void>;
   onFaucet: () => Promise<void>;
   onInviteMember: (email: string, role: string) => Promise<void>;
+  onRenameProject?: (projectId: string, newName: string) => Promise<void>;
+  onRenameOrg?: (orgId: string, newName: string) => Promise<void>;
   rotatedKey: string | null;
   onCloseRotatedKeyModal: () => void;
 }
@@ -99,6 +102,8 @@ export function DashboardPage({
   onPushPolicy,
   onFaucet,
   onInviteMember,
+  onRenameProject,
+  onRenameOrg,
   orgMemberships = [],
   onAcceptInvite,
   onSwitchOrg,
@@ -110,6 +115,12 @@ export function DashboardPage({
   const [isTopUpModalOpen, setIsTopUpModalOpen] = useState(false);
   const [isWithdrawModalOpen, setIsWithdrawModalOpen] = useState(false);
   const [isOrgModalOpen, setIsOrgModalOpen] = useState(false);
+  const [renameModalConfig, setRenameModalConfig] = useState<{
+    isOpen: boolean;
+    type: 'org' | 'project';
+    id: string;
+    currentName: string;
+  } | null>(null);
 
   const currentProject = projects.find(p => p.id === activeProjectId) || projects[0] || null;
 
@@ -223,6 +234,18 @@ export function DashboardPage({
         currentOrg={currentOrg}
         orgMemberships={orgMemberships}
         onSwitchOrg={onSwitchOrg}
+        onOpenRenameOrg={() => setRenameModalConfig({
+          isOpen: true,
+          type: 'org',
+          id: currentOrg.id,
+          currentName: currentOrg.name,
+        })}
+        onOpenRenameProject={() => currentProject && setRenameModalConfig({
+          isOpen: true,
+          type: 'project',
+          id: currentProject.id,
+          currentName: currentProject.name,
+        })}
       />
 
       {/* Pending Invitations Banner */}
@@ -303,6 +326,7 @@ export function DashboardPage({
         onInviteMember={onInviteMember}
         onAcceptInvite={onAcceptInvite}
         onSwitchOrg={onSwitchOrg}
+        onRenameOrg={onRenameOrg}
       />
 
       <RotatedKeyModal
@@ -310,6 +334,22 @@ export function DashboardPage({
         onClose={onCloseRotatedKeyModal}
         rotatedKey={rotatedKey}
       />
+
+      {renameModalConfig && (
+        <RenameModal
+          isOpen={renameModalConfig.isOpen}
+          type={renameModalConfig.type}
+          currentName={renameModalConfig.currentName}
+          onClose={() => setRenameModalConfig(null)}
+          onSave={async (newName) => {
+            if (renameModalConfig.type === 'org' && onRenameOrg) {
+              await onRenameOrg(renameModalConfig.id, newName);
+            } else if (renameModalConfig.type === 'project' && onRenameProject) {
+              await onRenameProject(renameModalConfig.id, newName);
+            }
+          }}
+        />
+      )}
     </div>
   );
 }

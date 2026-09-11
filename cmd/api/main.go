@@ -716,6 +716,52 @@ func main() {
 			})
 		})
 
+		pr.Patch("/v1/orgs/{id}", func(w http.ResponseWriter, r *http.Request) {
+			orgID := chi.URLParam(r, "id")
+			claims, _ := auth.GetSession(r.Context())
+			if claims == nil {
+				httpx.Err(w, http.StatusUnauthorized, "UNAUTHORIZED", "authentication required")
+				return
+			}
+			oUUID, err := uuid.Parse(orgID)
+			if err != nil {
+				httpx.Err(w, http.StatusBadRequest, "INVALID_ID", "invalid organization id")
+				return
+			}
+
+			// Verify user is an owner or approver of this organization
+			role := claims.Role
+			if pgPool != nil {
+				_ = pgPool.QueryRow(r.Context(), "SELECT role FROM members WHERE org_id = $1 AND LOWER(email) = LOWER($2)", oUUID, claims.Email).Scan(&role)
+			}
+			if role != "owner" && role != "approver" {
+				httpx.Err(w, http.StatusForbidden, "FORBIDDEN", "only workspace owners or approvers can rename the organization")
+				return
+			}
+
+			var req struct {
+				Name string `json:"name"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.Name) == "" {
+				httpx.Err(w, http.StatusBadRequest, "INVALID_REQUEST", "name is required")
+				return
+			}
+			newName := strings.TrimSpace(req.Name)
+
+			if pgPool != nil {
+				_, err = pgPool.Exec(r.Context(), "UPDATE orgs SET name = $1 WHERE id = $2", newName, oUUID)
+				if err != nil {
+					httpx.Err(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+					return
+				}
+			}
+
+			httpx.JSON(w, http.StatusOK, map[string]any{
+				"id":   orgID,
+				"name": newName,
+			})
+		})
+
 		pr.Post("/v1/auth/switch-org", func(w http.ResponseWriter, r *http.Request) {
 			var req struct {
 				OrgID string `json:"org_id"`
@@ -1267,6 +1313,27 @@ func main() {
 			id := chi.URLParam(r, "id")
 			claims, _ := auth.GetSession(r.Context())
 			p, ok := memStore.getProjectForOrg(id, claims.OrgID)
+			if !ok && pgPool != nil {
+				if pUUID, err := uuid.Parse(id); err == nil {
+					var pName, pSlug, pStatus, hcsTopic string
+					var thresh int16
+					var minUSD pgtype.Numeric
+					err := pgPool.QueryRow(r.Context(), "SELECT name, slug, status, hcs_topic_id, quorum_threshold, withdraw_quorum_min_usd FROM projects WHERE id = $1 AND org_id = $2", pUUID, claims.OrgID).Scan(&pName, &pSlug, &pStatus, &hcsTopic, &thresh, &minUSD)
+					if err == nil {
+						p = map[string]any{
+							"id":                      id,
+							"org_id":                  claims.OrgID.String(),
+							"name":                    pName,
+							"slug":                    pSlug,
+							"status":                  pStatus,
+							"hcs_topic_id":            hcsTopic,
+							"quorum_threshold":        int(thresh),
+							"withdraw_quorum_min_usd": ledger.FromPgNumeric(minUSD).String(),
+						}
+						ok = true
+					}
+				}
+			}
 			if !ok {
 				httpx.Err(w, http.StatusNotFound, "NOT_FOUND", "project not found")
 				return

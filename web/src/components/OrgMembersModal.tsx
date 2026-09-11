@@ -13,6 +13,7 @@ export interface OrgMembersModalProps {
   onInviteMember: (email: string, role: string) => Promise<void>;
   onAcceptInvite?: (orgId: string) => Promise<void>;
   onSwitchOrg?: (orgId: string) => Promise<void>;
+  onRenameOrg?: (orgId: string, newName: string) => Promise<void>;
 }
 
 export function OrgMembersModal({
@@ -25,13 +26,33 @@ export function OrgMembersModal({
   onInviteMember,
   onAcceptInvite,
   onSwitchOrg,
+  onRenameOrg,
 }: OrgMembersModalProps) {
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState<'approver' | 'viewer'>('approver');
   const [isSending, setIsSending] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [isEditingOrg, setIsEditingOrg] = useState(false);
+  const [newOrgName, setNewOrgName] = useState(currentOrg.name || '');
+  const [isSavingOrg, setIsSavingOrg] = useState(false);
 
   if (!isOpen) return null;
+
+  const handleSaveOrgName = async () => {
+    if (!newOrgName.trim() || newOrgName.trim() === currentOrg.name || !onRenameOrg) {
+      setIsEditingOrg(false);
+      return;
+    }
+    setIsSavingOrg(true);
+    try {
+      await onRenameOrg(currentOrg.id, newOrgName.trim());
+      setIsEditingOrg(false);
+    } catch (err: unknown) {
+      setMsg(`Rename failed: ${(err as Error).message}`);
+    } finally {
+      setIsSavingOrg(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -54,18 +75,60 @@ export function OrgMembersModal({
       <div className="bg-paper border border-ink max-w-2xl w-full p-6 md:p-8 flex flex-col gap-6 relative shadow-2xl">
         {/* Header */}
         <div className="flex justify-between items-start border-b border-ink pb-4">
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-col gap-1 w-full mr-4">
             <div className="flex items-center gap-2">
               <span className="w-2.5 h-2.5 bg-forge inline-block" />
               <span className="text-[11px] uppercase tracking-wider font-bold text-forge">
-                ORGANIZATION &amp; ACCESS CONTROL
+                WORKSPACE / ORGANIZATION &amp; ACCESS CONTROL
               </span>
             </div>
-            <h2 className="text-xl font-bold uppercase tracking-tight text-ink mt-1">
-              {currentOrg.name || 'Workspace'}
-            </h2>
+            {isEditingOrg ? (
+              <div className="flex items-center gap-2 mt-1">
+                <input
+                  type="text"
+                  value={newOrgName}
+                  onChange={(e) => setNewOrgName(e.target.value)}
+                  className="border border-ink bg-paper2 px-2 py-1 text-sm font-mono font-bold text-ink outline-none focus:border-forge flex-1"
+                  autoFocus
+                />
+                <button
+                  type="button"
+                  onClick={handleSaveOrgName}
+                  disabled={isSavingOrg || !newOrgName.trim()}
+                  className="bg-forge text-ink px-2.5 py-1 text-xs font-bold uppercase cursor-pointer hover:opacity-90"
+                >
+                  {isSavingOrg ? '...' : 'SAVE'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsEditingOrg(false)}
+                  className="text-xs text-ink-mut hover:text-ink cursor-pointer px-1"
+                >
+                  CANCEL
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 mt-1">
+                <h2 className="text-xl font-bold uppercase tracking-tight text-ink">
+                  {currentOrg.name || 'Workspace'}
+                </h2>
+                {onRenameOrg && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNewOrgName(currentOrg.name || '');
+                      setIsEditingOrg(true);
+                    }}
+                    className="text-xs border border-ink px-2 py-0.5 hover:bg-ink hover:text-paper font-bold cursor-pointer transition-colors"
+                    title="Rename workspace organization"
+                  >
+                    ✎ RENAME
+                  </button>
+                )}
+              </div>
+            )}
             <p className="text-xs text-ink-mut">
-              Multi-party governance, Approver Quorums &amp; Team Permissions (Doc 01 §3)
+              Organizations represent company/team boundaries and hold your team members and AI agent projects.
             </p>
           </div>
           <button
@@ -85,7 +148,7 @@ export function OrgMembersModal({
             <span className="text-forge">2-of-N Signatures Required (&gt; $100 USDC)</span>
           </div>
           <p className="text-[11px] text-ink-mut leading-relaxed">
-            Team members with the <strong className="text-ink">Approver</strong> role hold hardware WebCrypto P-256 keys to countersign treasury withdrawals and policy pushes.
+            Team members with the <strong className="text-ink">Approver</strong> role hold hardware WebCrypto P-256 keys to countersign treasury withdrawals and policy pushes across all agent projects in this workspace.
           </p>
         </div>
 
@@ -203,9 +266,14 @@ export function OrgMembersModal({
 
         {/* Invite Form */}
         <form onSubmit={handleSubmit} className="border-t border-ink pt-4 flex flex-col gap-3">
-          <span className="text-xs uppercase font-bold text-ink">
-            Invite Teammate to Organization
-          </span>
+          <div className="flex flex-col gap-0.5">
+            <span className="text-xs uppercase font-bold text-ink">
+              Invite Teammate to Workspace ({currentOrg.name})
+            </span>
+            <span className="text-[11px] text-ink-mut">
+              Team members join this Organization. Approvers share access to countersign multi-sig treasury withdrawals for all agent projects in this workspace.
+            </span>
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
             <input
               type="email"

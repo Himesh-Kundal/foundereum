@@ -10,6 +10,7 @@ export interface ProjectsPageProps {
   onOpenNewProject: () => void;
   onSelectProject: (id: string) => void;
   onSignOut: () => void;
+  onRenameProject?: (id: string, currentName: string) => void;
 }
 
 export function ProjectsPage({
@@ -18,6 +19,7 @@ export function ProjectsPage({
   onOpenNewProject,
   onSelectProject,
   onSignOut,
+  onRenameProject,
 }: ProjectsPageProps) {
   return (
     <div className="min-h-screen bg-paper flex flex-col font-mono">
@@ -29,11 +31,16 @@ export function ProjectsPage({
           >
             ← BACK TO DASHBOARD
           </button>
-          <h1 className="font-mono text-xl uppercase font-bold">ALL PROJECTS ({projects.length})</h1>
+          <div>
+            <h1 className="font-mono text-xl uppercase font-bold">ALL AGENT PROJECTS ({projects.length})</h1>
+            <p className="text-[11px] text-ink-mut hidden sm:block">
+              Each project is an isolated AI Agent with its own Hedera wallets, Privy spend policies, and API keys.
+            </p>
+          </div>
         </div>
         <div className="flex items-center gap-3">
           <ThemeToggle />
-          <BlockButton onClick={onOpenNewProject}>+ NEW PROJECT</BlockButton>
+          <BlockButton onClick={onOpenNewProject}>+ NEW AGENT</BlockButton>
           <PillButton onClick={onSignOut}>SIGN OUT</PillButton>
         </div>
       </div>
@@ -70,9 +77,21 @@ export function ProjectsPage({
                 </div>
 
                 <div className="flex justify-between items-center pt-2 border-t border-ink">
-                  <span className="border border-ok text-ok px-2 py-0.5 text-[10px] font-bold uppercase">
-                    identity: ready (ERC-8004)
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="border border-ok text-ok px-2 py-0.5 text-[10px] font-bold uppercase">
+                      identity: ready (ERC-8004)
+                    </span>
+                    {onRenameProject && (
+                      <button
+                        type="button"
+                        onClick={() => onRenameProject(proj.id, proj.name)}
+                        className="text-xs text-ink-mut hover:text-forge font-bold cursor-pointer transition-colors"
+                        title="Rename this agent"
+                      >
+                        [RENAME]
+                      </button>
+                    )}
+                  </div>
                   <button
                     type="button"
                     onClick={() => onSelectProject(proj.id)}

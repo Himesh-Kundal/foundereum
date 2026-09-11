@@ -191,6 +191,36 @@ export default function App() {
     }
   };
 
+  const handleRenameProject = async (projectId: string, newName: string) => {
+    try {
+      const updated = await api.updateProject(projectId, { name: newName });
+      setProjects((prev) =>
+        prev.map((p) => (p.id === projectId ? { ...p, name: updated.name } : p))
+      );
+      showToast(`Renamed agent project to "${updated.name}"`);
+    } catch (err: unknown) {
+      showToast(`Failed to rename project: ${(err as Error).message}`);
+    }
+  };
+
+  const handleRenameOrg = async (orgId: string, newName: string) => {
+    try {
+      const updated = await api.updateOrg(orgId, { name: newName });
+      setCurrentOrg((prev) => (prev.id === orgId ? { ...prev, name: updated.name } : prev));
+      setOrgMemberships((prev) =>
+        prev.map((o) => (o.org_id === orgId ? { ...o, org_name: updated.name } : o))
+      );
+      if (user) {
+        const u = { ...user, orgName: updated.name };
+        setUser(u);
+        localStorage.setItem('fnd_user_session', JSON.stringify(u));
+      }
+      showToast(`Renamed workspace to "${updated.name}"`);
+    } catch (err: unknown) {
+      showToast(`Failed to rename workspace: ${(err as Error).message}`);
+    }
+  };
+
   const handleSignOut = async () => {
     try {
       await privyLogout();
@@ -529,6 +559,7 @@ export default function App() {
             navigateTo('app', 'overview');
           }}
           onSignOut={handleSignOut}
+          onRenameProject={handleRenameProject}
         />
         <Toast message={toastMessage} />
       </>
@@ -597,6 +628,8 @@ export default function App() {
         onSwitchOrg={handleSwitchOrg}
         onSignOut={handleSignOut}
         onCreateProject={handleCreateProject}
+        onRenameProject={handleRenameProject}
+        onRenameOrg={handleRenameOrg}
         onCreateKey={handleCreateKey}
         onRotateKey={handleRotateKey}
         onRevokeKey={handleRevokeKey}

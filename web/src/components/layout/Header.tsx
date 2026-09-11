@@ -19,6 +19,8 @@ export interface HeaderProps {
   currentOrg?: { id: string; name: string };
   orgMemberships?: UserOrgMembership[];
   onSwitchOrg?: (orgId: string) => Promise<void>;
+  onOpenRenameOrg?: () => void;
+  onOpenRenameProject?: () => void;
 }
 
 export function Header({
@@ -36,6 +38,8 @@ export function Header({
   currentOrg,
   orgMemberships = [],
   onSwitchOrg,
+  onOpenRenameOrg,
+  onOpenRenameProject,
 }: HeaderProps) {
   return (
     <header className="border-b border-ink bg-paper flex items-center justify-between px-4 h-14 shrink-0 font-mono">
@@ -55,8 +59,10 @@ export function Header({
         <div className="h-4 w-px bg-ink mx-1 hidden sm:block" />
         
         {/* Organization / Workspace Switcher */}
-        <div className="flex items-center gap-1.5 bg-paper2 border border-ink px-2 py-1">
-          <span className="text-[10px] text-forge uppercase font-bold hidden md:inline">ORG:</span>
+        <div className="flex items-center gap-1 bg-paper2 border border-ink px-2 py-1">
+          <span className="text-[10px] text-forge uppercase font-bold hidden md:inline" title="Organization Workspace (Company/Team)">
+            ORG:
+          </span>
           <select
             value={currentOrg?.id || ''}
             onChange={(e) => {
@@ -64,8 +70,8 @@ export function Header({
                 onSwitchOrg(e.target.value);
               }
             }}
-            className="text-xs bg-transparent border-none outline-none cursor-pointer font-bold max-w-[120px] md:max-w-[160px] truncate text-ink"
-            title="Switch Workspace Organization"
+            className="text-xs bg-transparent border-none outline-none cursor-pointer font-bold max-w-[110px] md:max-w-[150px] truncate text-ink"
+            title="Switch Workspace Organization (Company/Team)"
           >
             {orgMemberships && orgMemberships.length > 0 ? (
               orgMemberships.map((org) => (
@@ -79,26 +85,48 @@ export function Header({
               </option>
             )}
           </select>
+          {onOpenRenameOrg && (
+            <button
+              type="button"
+              onClick={onOpenRenameOrg}
+              className="text-[11px] text-ink-mut hover:text-forge transition-colors px-1 cursor-pointer font-bold"
+              title="Rename this Organization"
+            >
+              ✎
+            </button>
+          )}
         </div>
 
         {/* Project Switcher */}
-        <div className="flex items-center gap-1.5 bg-paper2 border border-ink px-2 py-1">
-          <span className="text-[10px] text-ink-mut uppercase font-bold hidden md:inline">PROJ:</span>
+        <div className="flex items-center gap-1 bg-paper2 border border-ink px-2 py-1">
+          <span className="text-[10px] text-ink-mut uppercase font-bold hidden md:inline" title="AI Agent Project">
+            PROJ:
+          </span>
           <select 
             value={activeProjectId}
             onChange={(e) => onSelectProject(e.target.value)}
-            className="text-xs bg-transparent border-none outline-none cursor-pointer font-bold max-w-[110px] md:max-w-[150px] truncate text-ink"
-            title="Switch Agent Project"
+            className="text-xs bg-transparent border-none outline-none cursor-pointer font-bold max-w-[100px] md:max-w-[140px] truncate text-ink"
+            title="Switch Agent Project (AI Agent)"
           >
             {projects.map(p => (
               <option key={p.id} value={p.id} className="bg-paper text-ink">{p.name}</option>
             ))}
           </select>
+          {onOpenRenameProject && (
+            <button
+              type="button"
+              onClick={onOpenRenameProject}
+              className="text-[11px] text-ink-mut hover:text-forge transition-colors px-1 cursor-pointer font-bold"
+              title="Rename this Agent Project"
+            >
+              ✎
+            </button>
+          )}
           <button 
             type="button" 
             onClick={onOpenNewProject}
             className="text-xs border-l border-ink pl-1.5 hover:text-forge transition-colors font-bold cursor-pointer"
-            title="Create new project"
+            title="Create new AI agent project"
           >
             +
           </button>

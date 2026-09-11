@@ -317,6 +317,13 @@ class ApiClient {
     return res;
   }
 
+  async updateOrg(orgId: string, data: { name: string }): Promise<{ id: string; name: string }> {
+    return this.request<{ id: string; name: string }>(`/v1/orgs/${orgId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
   // 3. Projects
   async getProjects(): Promise<ProjectSummary[]> {
     return this.request<ProjectSummary[]>('/v1/projects');
@@ -330,6 +337,13 @@ class ApiClient {
   }): Promise<{ project: ProjectSummary; wallets: Wallet[] }> {
     return this.request('/v1/projects', {
       method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateProject(id: string, data: { name?: string; quorum_threshold?: number; withdraw_quorum_min_usd?: string }): Promise<ProjectSummary> {
+    return this.request<ProjectSummary>(`/v1/projects/${id}`, {
+      method: 'PATCH',
       body: JSON.stringify(data),
     });
   }
