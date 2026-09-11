@@ -28,16 +28,6 @@
 
 ---
 
-## Target Hackathon Tracks & Partner Integrations
-
-| Partner | Category & Focus | Key Integration | Code References |
-|---------|------------------|-----------------|-----------------|
-| **Hedera** | 🤖 **AI & Agentic Payments on Hedera** ($6,000) | Native HTS USDC micropayments, Blocky402 facilitator settlement, HCS public audit topic, ERC-8004 agent registry on Hedera EVM (Chain ID 296) | [`internal/x402/hedera/transfer.go#L29`](https://github.com/Himesh-Kundal/foundereum/blob/main/internal/x402/hedera/transfer.go#L29)<br>[`internal/hcs/hcs.go#L53`](https://github.com/Himesh-Kundal/foundereum/blob/main/internal/hcs/hcs.go#L53) |
-| **The Graph** | 🤖 **Best AI Tooling / Use Case** ($5,000)<br>🧩 **Standardized Graph Products** ($5,000) | Model Context Protocol (MCP) server integration, Messari Standardized DEX Subgraphs for TVL/pool health, `data (untrusted):` prompt injection hygiene | [`sidecars/subgraph-mcp/server.js#L53`](https://github.com/Himesh-Kundal/foundereum/blob/main/sidecars/subgraph-mcp/server.js#L53)<br>[`internal/tools/graph/graph_tools.go#L23`](https://github.com/Himesh-Kundal/foundereum/blob/main/internal/tools/graph/graph_tools.go#L23) |
-| **Privy** | 🏢 **Best B2B Financial Product** ($2,500)<br>💸 **Best Financial Flow** ($2,500) | TEE Server Wallets, strict `default_action: DENY` policy engine, and in-browser WebCrypto P-256 multi-party quorum signatures for treasury approvals | [`internal/privy/client.go#L43`](https://github.com/Himesh-Kundal/foundereum/blob/main/internal/privy/client.go#L43)<br>[`web/src/components/ApprovalCard.tsx#L60`](https://github.com/Himesh-Kundal/foundereum/blob/main/web/src/components/ApprovalCard.tsx#L60) |
-
----
-
 ## Architecture & Data Flow
 
 ```
