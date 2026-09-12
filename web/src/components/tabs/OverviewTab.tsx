@@ -27,13 +27,23 @@ export function OverviewTab({
   mcpConfigText,
   onNavigateToCalls,
 }: OverviewTabProps) {
+  const settledCalls = calls.filter((c) => c.status === 'succeeded');
+  const totalSettledUsd = settledCalls.reduce(
+    (acc, c) => acc + parseFloat(c.actual_usd || c.estimate_usd || '0'),
+    0
+  );
+
   return (
     <div className="flex flex-col gap-8 font-mono">
       {/* Row of StatCells (Doc 11 §4.3) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCell label="TREASURY USDC" value={parseFloat(treasuryWallet.usdc || '0').toFixed(2)} />
         <StatCell label="AGENT USDC" value={parseFloat(agentWallet.usdc || '0').toFixed(2)} />
-        <StatCell label="SPEND 24H" value={`$${spend24h.toFixed(2)}`} />
+        <StatCell 
+          label="SPEND 24H" 
+          value={`$${spend24h.toFixed(2)}`} 
+          delta={totalSettledUsd > 0 ? `($${totalSettledUsd.toFixed(4)} total)` : undefined} 
+        />
         <StatCell label="CALLS TODAY" value={String(calls.length)} />
       </div>
 
@@ -71,8 +81,19 @@ export function OverviewTab({
               <CopyField value={currentProject?.hcs_topic_id || auditTopicId || 'Pending provisioning'} />
             </div>
             <div className="flex flex-col gap-1">
-              <span className="text-xs font-mono uppercase text-ink-mut font-bold">SETTLEMENT FACILITATOR</span>
-              <CopyField value={treasuryWallet.hedera_account_id !== '—' ? treasuryWallet.hedera_account_id : '0.0.10413602'} />
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-mono uppercase text-ink-mut font-bold">PLATFORM ACCOUNT (x402 payTo)</span>
+                <a
+                  href="https://hashscan.io/testnet/account/0.0.10413602"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-[11px] text-forge hover:underline font-bold"
+                  title="View Platform Account on HashScan"
+                >
+                  HashScan ↗
+                </a>
+              </div>
+              <CopyField value="0.0.10413602" />
             </div>
           </div>
         </Cell>
