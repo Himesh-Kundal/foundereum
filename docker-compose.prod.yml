@@ -45,11 +45,6 @@ services:
 
   api:
     image: ${IMAGE_PREFIX:-ghcr.io/himesh-kundal/foundereum}-api:${IMAGE_TAG:-latest}
-    build:
-      context: .
-      dockerfile: deploy/Dockerfile.app
-      args:
-        CMD: api
     restart: unless-stopped
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-fnd}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-foundereum}?sslmode=disable
@@ -83,11 +78,6 @@ services:
 
   gateway:
     image: ${IMAGE_PREFIX:-ghcr.io/himesh-kundal/foundereum}-gateway:${IMAGE_TAG:-latest}
-    build:
-      context: .
-      dockerfile: deploy/Dockerfile.app
-      args:
-        CMD: gateway
     restart: unless-stopped
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-fnd}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-foundereum}?sslmode=disable
@@ -119,11 +109,6 @@ services:
 
   mcp:
     image: ${IMAGE_PREFIX:-ghcr.io/himesh-kundal/foundereum}-mcp:${IMAGE_TAG:-latest}
-    build:
-      context: .
-      dockerfile: deploy/Dockerfile.app
-      args:
-        CMD: mcp
     restart: unless-stopped
     environment:
       PORT_MCP: 8082
@@ -134,11 +119,6 @@ services:
 
   worker:
     image: ${IMAGE_PREFIX:-ghcr.io/himesh-kundal/foundereum}-worker:${IMAGE_TAG:-latest}
-    build:
-      context: .
-      dockerfile: deploy/Dockerfile.app
-      args:
-        CMD: worker
     restart: unless-stopped
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-fnd}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-foundereum}?sslmode=disable
@@ -155,8 +135,6 @@ services:
 
   subgraph-mcp:
     image: ${IMAGE_PREFIX:-ghcr.io/himesh-kundal/foundereum}-subgraph-mcp:${IMAGE_TAG:-latest}
-    build:
-      context: ./sidecars/subgraph-mcp
     restart: unless-stopped
     environment:
       GRAPH_API_KEY: ${GRAPH_API_KEY}
@@ -170,12 +148,6 @@ services:
 
   web:
     image: ${IMAGE_PREFIX:-ghcr.io/himesh-kundal/foundereum}-web:${IMAGE_TAG:-latest}
-    build:
-      context: .
-      dockerfile: deploy/Dockerfile.web
-      args:
-        VITE_API_URL: https://api.foundereum.com
-        VITE_PRIVY_APP_ID: ${PRIVY_APP_ID}
     restart: unless-stopped
 
 volumes:
