@@ -1,0 +1,39 @@
+name: Clean VM Disk
+
+on:
+  workflow_dispatch:
+
+jobs:
+  cleanup:
+    name: Clean VM Disk Space
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Prune Docker and System Caches via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          script: |
+            set -euo pipefail
+            echo "=== DISK USAGE BEFORE CLEANUP ==="
+            df -h
+
+            echo "Pruning stopped containers..."
+            docker container prune -f || true
+
+            echo "Pruning all unused Docker images and build caches..."
+            docker image prune -af || true
+            docker builder prune -af || true
+            docker system prune -af --volumes=false || true
+
+            echo "Vacuuming systemd journal logs (retaining last 1 day)..."
+            sudo journalctl --vacuum-time=1d 2>/dev/null || true
+
+            echo "Cleaning apt cache..."
+            sudo apt-get clean 2>/dev/null || true
+
+            echo "=== DISK USAGE AFTER CLEANUP ==="
+            df -h

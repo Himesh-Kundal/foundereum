@@ -65,6 +65,23 @@ jobs:
             # Log in to GHCR
             echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u "${{ secrets.GHCR_USER }}" --password-stdin
 
+            # Free disk space BEFORE pulling images (prevent 'no space left on device')
+            echo "=== Disk usage before cleanup ==="
+            df -h
+
+            echo "Pruning unused Docker images, builder cache, and stopped containers..."
+            docker container prune -f || true
+            docker image prune -af || true
+            docker builder prune -af || true
+            docker system prune -af --volumes=false || true
+            
+            # Clean package manager cache and systemd logs
+            sudo apt-get clean 2>/dev/null || true
+            sudo journalctl --vacuum-time=1d 2>/dev/null || true
+
+            echo "=== Disk usage after cleanup ==="
+            df -h
+
             # Pull new production images
             docker compose -f docker-compose.prod.yml pull
 
@@ -90,8 +107,8 @@ jobs:
             sleep 10
             docker compose -f docker-compose.prod.yml ps
 
-            # Prune old images
-            docker image prune -f
+            # Prune old images and build artifacts
+            docker image prune -af || true
 
             echo "✅ Deployed tag: ${IMAGE_TAG}"
 
