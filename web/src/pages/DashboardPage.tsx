@@ -210,6 +210,7 @@ export function DashboardPage({
           <ApprovalsTab
             approvals={approvals}
             orgMembers={orgMembers}
+            currentUserEmail={user?.email}
             onApprove={onApprove}
             onReject={onReject}
           />

@@ -2539,21 +2539,23 @@ func main() {
 
 			sigs, _ := targetApp["signatures"].([]map[string]any)
 
-			// Determine signer email
-			signerEmail := ""
-			if req.Email != "" {
-				signerEmail = strings.ToLower(strings.TrimSpace(req.Email))
-			} else if claims != nil && claims.Email != "" {
-				signerEmail = strings.ToLower(strings.TrimSpace(claims.Email))
+			// Determine signer email strictly from authenticated session
+			if claims == nil || claims.Email == "" {
+				httpx.Err(w, http.StatusUnauthorized, "UNAUTHORIZED", "authentication required to approve")
+				return
 			}
-			if signerEmail == "" {
-				signerEmail = fmt.Sprintf("approver-%d@foundereum.org", len(sigs)+1)
+			signerEmail := strings.ToLower(strings.TrimSpace(claims.Email))
+
+			// Reject attempts to sign on behalf of another user
+			if req.Email != "" && !strings.EqualFold(strings.TrimSpace(req.Email), signerEmail) {
+				httpx.Err(w, http.StatusForbidden, "FORBIDDEN", fmt.Sprintf("cannot sign on behalf of %s; you must sign as your authenticated account (%s)", req.Email, signerEmail))
+				return
 			}
 
 			// Reject duplicate signatures from the same email
 			for _, s := range sigs {
 				if existingEmail, ok := s["email"].(string); ok && strings.EqualFold(existingEmail, signerEmail) {
-					httpx.Err(w, http.StatusBadRequest, "ALREADY_SIGNED", fmt.Sprintf("signer %s has already signed this approval request", signerEmail))
+					httpx.Err(w, http.StatusBadRequest, "ALREADY_SIGNED", fmt.Sprintf("you (%s) have already signed this approval request; waiting for other approvers", signerEmail))
 					return
 				}
 			}

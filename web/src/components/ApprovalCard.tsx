@@ -9,6 +9,7 @@ export interface ApprovalCardProps {
   expiry?: string;
   signatures?: Array<{ email: string; at: string }>;
   orgMembers?: Array<{ email: string; role: string }>;
+  currentUserEmail?: string;
   onApprove?: (signerEmail?: string) => void;
   onReject?: () => void;
   isHistory?: boolean;
@@ -22,6 +23,7 @@ export const ApprovalCard = ({
   expiry,
   signatures,
   orgMembers,
+  currentUserEmail,
   onApprove,
   onReject,
   isHistory = false,
@@ -35,21 +37,15 @@ export const ApprovalCard = ({
     return 'pending';
   });
 
-  const alreadySignedEmails = (signatures || []).map((s) => s.email.toLowerCase());
-  const eligibleApprovers = (orgMembers || [])
+  const normalizedUserEmail = currentUserEmail?.toLowerCase().trim() || '';
+  const alreadySignedEmails = (signatures || []).map((s) => s.email.toLowerCase().trim());
+  const hasCurrentUserSigned = normalizedUserEmail !== '' && alreadySignedEmails.includes(normalizedUserEmail);
+
+  // Remaining eligible approvers who have not signed yet
+  const pendingApproverList = (orgMembers || [])
     .filter((m) => m.role === 'owner' || m.role === 'approver')
     .map((m) => m.email)
-    .filter((email) => !alreadySignedEmails.includes(email.toLowerCase()));
-
-  const [selectedSigner, setSelectedSigner] = useState<string>(
-    eligibleApprovers[0] || 'approver-2@foundereum.org'
-  );
-
-  useEffect(() => {
-    if (eligibleApprovers.length > 0) {
-      setSelectedSigner(eligibleApprovers[0]);
-    }
-  }, [eligibleApprovers.length]);
+    .filter((email) => !alreadySignedEmails.includes(email.toLowerCase().trim()));
 
   useEffect(() => {
     setCurrent(initialCurrent);
@@ -61,7 +57,7 @@ export const ApprovalCard = ({
   const handleApprove = async () => {
     setIsSigning(true);
     try {
-      if (window.crypto && window.crypto.subtle) {
+      if (typeof window !== 'undefined' && window.crypto && window.crypto.subtle) {
         const keyPair = await window.crypto.subtle.generateKey(
           { name: 'ECDSA', namedCurve: 'P-256' },
           true,
@@ -84,7 +80,7 @@ export const ApprovalCard = ({
     if (nextCount >= threshold) {
       setStatus('approved');
     }
-    if (onApprove) onApprove(selectedSigner);
+    if (onApprove) onApprove(currentUserEmail);
   };
 
   const handleReject = () => {
@@ -157,38 +153,53 @@ export const ApprovalCard = ({
         )}
 
         {!isHistory && status === 'pending' && (
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mt-1">
-            <div className="flex items-center gap-2 text-xs">
-              <span className="text-ink-mut uppercase text-[10px] font-bold">SIGN AS:</span>
-              <select
-                value={selectedSigner}
-                onChange={(e) => setSelectedSigner(e.target.value)}
-                className="border border-ink bg-paper px-2 py-1 text-xs font-mono font-bold focus:outline-none focus:border-forge cursor-pointer"
-              >
-                {eligibleApprovers.length > 0 ? (
-                  eligibleApprovers.map((em) => (
-                    <option key={em} value={em}>
-                      {em}
-                    </option>
-                  ))
-                ) : (
-                  <option value="approver-2@foundereum.org">approver-2@foundereum.org</option>
-                )}
-              </select>
-            </div>
+          <div>
+            {hasCurrentUserSigned ? (
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mt-1 bg-paper2 p-3 border border-ink">
+                <div className="flex flex-col gap-0.5">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-ok">
+                    <span>✓</span>
+                    <span>YOU ALREADY SIGNED</span>
+                    <span className="text-ink-mut font-normal">({currentUserEmail})</span>
+                  </div>
+                  <div className="text-[11px] text-ink-mut">
+                    Waiting for {threshold - current} additional approver signature{threshold - current > 1 ? 's' : ''}
+                    {pendingApproverList.length > 0 ? ` (${pendingApproverList.join(', ')})` : ''}
+                  </div>
+                </div>
 
-            <div className="flex gap-2 w-full sm:w-auto justify-end">
-              <button 
-                type="button"
-                onClick={handleReject} 
-                className="border border-ink px-4 py-2 text-xs font-mono uppercase hover:bg-paper2 transition-colors cursor-pointer"
-              >
-                REJECT
-              </button>
-              <BlockButton onClick={handleApprove}>
-                {isSigning ? 'SIGNING VIA WEBCRYPTO...' : 'APPROVE (SIGN P-256)'}
-              </BlockButton>
-            </div>
+                <button
+                  type="button"
+                  onClick={handleReject}
+                  className="border border-err text-err hover:bg-err hover:text-paper px-3 py-1.5 text-xs font-mono uppercase font-bold transition-colors cursor-pointer"
+                  title="Cancel this pending approval request"
+                >
+                  CANCEL REQUEST
+                </button>
+              </div>
+            ) : (
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mt-1">
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="text-ink-mut uppercase text-[10px] font-bold">SIGNING AS:</span>
+                  <span className="font-bold text-ink bg-paper2 border border-ink px-2 py-0.5">
+                    {currentUserEmail || 'Authenticated Approver'}
+                  </span>
+                </div>
+
+                <div className="flex gap-2 w-full sm:w-auto justify-end">
+                  <button 
+                    type="button"
+                    onClick={handleReject} 
+                    className="border border-ink px-4 py-2 text-xs font-mono uppercase hover:bg-paper2 transition-colors cursor-pointer"
+                  >
+                    REJECT
+                  </button>
+                  <BlockButton onClick={handleApprove}>
+                    {isSigning ? 'SIGNING VIA WEBCRYPTO...' : 'APPROVE (SIGN P-256)'}
+                  </BlockButton>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

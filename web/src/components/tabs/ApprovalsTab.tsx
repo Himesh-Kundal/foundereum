@@ -4,11 +4,12 @@ import type { Approval, OrgMember } from '../../types';
 export interface ApprovalsTabProps {
   approvals: Approval[];
   orgMembers?: OrgMember[];
+  currentUserEmail?: string;
   onApprove: (approvalId: string, signerEmail?: string) => Promise<void>;
   onReject: (approvalId: string) => Promise<void>;
 }
 
-export function ApprovalsTab({ approvals, orgMembers, onApprove, onReject }: ApprovalsTabProps) {
+export function ApprovalsTab({ approvals, orgMembers, currentUserEmail, onApprove, onReject }: ApprovalsTabProps) {
   const pendingApprovals = approvals.filter((a) => a.status === 'pending');
   const historyApprovals = approvals.filter((a) => a.status !== 'pending');
 
@@ -42,6 +43,7 @@ export function ApprovalsTab({ approvals, orgMembers, onApprove, onReject }: App
             expiry={app.expires_at}
             signatures={app.signatures}
             orgMembers={orgMembers}
+            currentUserEmail={currentUserEmail}
             onApprove={(signerEmail) => onApprove(app.id, signerEmail)}
             onReject={() => onReject(app.id)}
           />
