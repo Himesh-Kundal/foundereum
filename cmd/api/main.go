@@ -1884,16 +1884,25 @@ func main() {
 			memStore.keys[id] = append(memStore.keys[id], k)
 			memStore.mu.Unlock()
 
-			if queries != nil {
-				var agentWalletID uuid.UUID
-				for _, wlt := range wallets {
-					if wlt["kind"] == "agent" {
-						if widStr, ok := wlt["id"].(string); ok {
-							agentWalletID, _ = uuid.Parse(widStr)
-						}
+			var agentWalletID uuid.UUID
+			for _, wlt := range wallets {
+				if wlt["kind"] == "agent" {
+					if widStr, ok := wlt["id"].(string); ok {
+						agentWalletID, _ = uuid.Parse(widStr)
 					}
 				}
+			}
+
+			if queries != nil {
 				if pUUID, err := uuid.Parse(id); err == nil {
+					if dbWallets, wErr := queries.GetWalletsByProject(r.Context(), toPgUUID(pUUID)); wErr == nil {
+						for _, dw := range dbWallets {
+							if dw.Kind == "agent" {
+								agentWalletID = uuid.UUID(dw.ID.Bytes)
+								break
+							}
+						}
+					}
 					_, _ = queries.CreateAPIKey(r.Context(), db.CreateAPIKeyParams{
 						ProjectID: toPgUUID(pUUID),
 						WalletID:  toPgUUID(agentWalletID),
@@ -1910,6 +1919,7 @@ func main() {
 				keyCtxData, _ := json.Marshal(map[string]any{
 					"key_id":            keyID,
 					"project_id":        id,
+					"wallet_id":         agentWalletID.String(),
 					"hedera_account_id": platformAccount,
 					"evm_address":       "0x0000000000000000000000000000000000000000",
 					"status":            "active",

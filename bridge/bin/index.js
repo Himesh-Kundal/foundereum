@@ -7,6 +7,7 @@
  */
 
 import http from 'http';
+import https from 'https';
 import readline from 'readline';
 
 const args = process.argv.slice(2);
@@ -38,10 +39,12 @@ rl.on('line', (line) => {
 
   try {
     const url = new URL(mcpUrl);
+    const isHttps = url.protocol === 'https:';
+    const client = isHttps ? https : http;
     const options = {
       hostname: url.hostname,
-      port: url.port || 80,
-      path: url.pathname,
+      port: url.port || (isHttps ? 443 : 80),
+      path: url.pathname + (url.search || ''),
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -50,7 +53,7 @@ rl.on('line', (line) => {
       }
     };
 
-    const req = http.request(options, (res) => {
+    const req = client.request(options, (res) => {
       let data = '';
       res.on('data', (chunk) => { data += chunk; });
       res.on('end', () => {

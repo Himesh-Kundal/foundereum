@@ -241,6 +241,52 @@ end
 					keyCtx = &row
 				}
 			}
+			if keyCtx == nil && pgPool != nil {
+				var (
+					kID, pID, wID pgtype.UUID
+					carryUSD      pgtype.Numeric
+					custody       string
+					privyWltID    pgtype.Text
+					hederaAccID   pgtype.Text
+					evmAddr       string
+					pubKeyHex     pgtype.Text
+					projStatus    string
+					polSpec       []byte
+				)
+				err := pgPool.QueryRow(r.Context(), `
+					SELECT k.id, k.project_id, k.carry_usd,
+					       COALESCE(w.id, '00000000-0000-0000-0000-000000000000'::uuid),
+					       COALESCE(w.custody, 'privy'),
+					       w.privy_wallet_id,
+					       w.hedera_account_id,
+					       COALESCE(w.evm_address, ''),
+					       w.public_key_hex,
+					       p.status,
+					       pol.spec
+					FROM api_keys k
+					JOIN projects p ON p.id = k.project_id
+					LEFT JOIN wallets w ON w.project_id = p.id AND w.kind = 'agent'
+					LEFT JOIN policies pol ON pol.project_id = p.id
+					WHERE k.key_hash = $1 AND k.status = 'active'
+					ORDER BY pol.version DESC
+					LIMIT 1
+				`, kh[:]).Scan(&kID, &pID, &carryUSD, &wID, &custody, &privyWltID, &hederaAccID, &evmAddr, &pubKeyHex, &projStatus, &polSpec)
+				if err == nil {
+					keyCtx = &gen.GetKeyContextRow{
+						KeyID:           kID,
+						ProjectID:       pID,
+						CarryUsd:        carryUSD,
+						WalletID:        wID,
+						Custody:         custody,
+						PrivyWalletID:   privyWltID,
+						HederaAccountID: hederaAccID,
+						EvmAddress:      evmAddr,
+						PublicKeyHex:    pubKeyHex,
+						ProjectStatus:   projStatus,
+						Policy:          polSpec,
+					}
+				}
+			}
 			if keyCtx == nil && rdb != nil {
 				khHex := hex.EncodeToString(kh[:])
 				if val, err := rdb.Get(r.Context(), "key_ctx:"+khHex).Result(); err == nil && val != "" {
@@ -333,6 +379,38 @@ end
 					spend24h, _ = ledg.SpendLast24h(r.Context(), projID)
 				}
 				if err := policy.PreCheckPayment(keyCtx.Policy, cfg.HederaPlatformAccount, estUSD, spend24h); err != nil {
+					callIDStr := uuid.NewString()
+					if pgPool != nil {
+						errJSON, _ := json.Marshal(map[string]any{
+							"code":    "POLICY_REJECTED",
+							"message": err.Error(),
+						})
+						var cUUID pgtype.UUID
+						_ = pgPool.QueryRow(r.Context(), `
+							INSERT INTO calls (project_id, api_key_id, idempotency_key, tool, args, status, estimate_usd, actual_usd, error, latency_ms, finished_at)
+							VALUES ($1, $2, $3, $4, $5, 'rejected', $6, 0, $7, $8, now())
+							RETURNING id
+						`, projID, keyCtx.KeyID, idemKey, toolName, rawArgs, ledger.ToPgNumeric(estUSD), errJSON, int32(time.Since(reqStart).Milliseconds())).Scan(&cUUID)
+						if cUUID.Valid {
+							callIDStr = uuid.UUID(cUUID.Bytes).String()
+						}
+					}
+					if rdb != nil {
+						evBytes, _ := json.Marshal(map[string]any{
+							"type":         "call.recorded",
+							"call_id":      callIDStr,
+							"project_id":   projID.String(),
+							"tool":         toolName,
+							"estimate_usd": estUSD.String(),
+							"actual_usd":   "0",
+							"latency_ms":   int32(time.Since(reqStart).Milliseconds()),
+							"status":       "rejected",
+							"reason":       err.Error(),
+							"ts":           time.Now().UTC(),
+						})
+						_ = rdb.Publish(r.Context(), "events:calls", evBytes).Err()
+						_ = rdb.Publish(r.Context(), "events:project:"+projID.String(), evBytes).Err()
+					}
 					httpx.Err(w, http.StatusForbidden, "POLICY_REJECTED", err.Error())
 					return
 				}
