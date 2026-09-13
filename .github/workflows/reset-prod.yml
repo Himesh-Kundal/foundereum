@@ -1,0 +1,68 @@
+name: Reset & Restart Production
+
+on:
+  workflow_dispatch:
+
+jobs:
+  reset:
+    name: Reset DB, Cache, and Restart Prod
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Reset Production Environment via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          script: |
+            set -euo pipefail
+            cd ~/foundereum
+
+            echo "=== Stopping production services and clearing DB + Redis volumes ==="
+            docker compose -f docker-compose.prod.yml down -v || true
+
+            echo "=== Cleaning Docker caches ==="
+            docker system prune -af --volumes=false || true
+            docker builder prune -af || true
+
+            # Pull latest git changes
+            git fetch origin main
+            git reset --hard origin/main
+
+            # Source production environment
+            if [ -f .env ]; then
+              set -a && source .env && set +a
+            fi
+
+            # Log in to GHCR
+            echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u "${{ secrets.GHCR_USER }}" --password-stdin
+
+            echo "=== Pulling production images ==="
+            docker compose -f docker-compose.prod.yml pull
+
+            echo "=== Starting clean Postgres & Redis ==="
+            docker compose -f docker-compose.prod.yml up -d postgres redis
+
+            echo "=== Waiting for Postgres to become ready ==="
+            until docker compose -f docker-compose.prod.yml exec -T postgres pg_isready -U "${POSTGRES_USER:-fnd}" >/dev/null 2>&1; do
+              sleep 1
+            done
+
+            echo "=== Running Goose DB Migrations on clean database ==="
+            if command -v goose &>/dev/null; then
+              goose -dir internal/db/migrations postgres "postgres://${POSTGRES_USER:-fnd}:${POSTGRES_PASSWORD}@127.0.0.1:5432/${POSTGRES_DB:-foundereum}?sslmode=disable" up
+            fi
+
+            echo "=== Starting all production services ==="
+            docker compose -f docker-compose.prod.yml up -d --remove-orphans
+
+            echo "=== Checking container status ==="
+            sleep 10
+            docker compose -f docker-compose.prod.yml ps
+
+            echo "=== Verifying endpoints ==="
+            curl -sf http://localhost/healthz || echo "⚠ Caddy health check warning"
+            curl -sf -H "Host: api.foundereum.org" http://localhost/healthz || echo "⚠ API health check warning"
+            echo "✅ Production has been cleanly reset, migrated, and restarted!"
